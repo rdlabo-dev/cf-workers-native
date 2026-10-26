@@ -132,8 +132,12 @@ import {runWebSocketLifecycle} from ${JSON.stringify(root + "/src/compat/http/we
 import {createFsLifetimeContract} from ${JSON.stringify(root + "/src/compat/fs/request-lifetime.spec.mjs")};
 const runFsLifetime = async () => {const step=createFsLifetimeContract(fs),out={};for(const kind of ["direct","handle"]){await withRequestScope(()=>step("first",kind));out[kind]=await withRequestScope(()=>step("second",kind));}return out};
 import {runWebSocketSurface} from ${JSON.stringify(root + "/src/compat/http/websocket-surface.spec.mjs")};
+// Exercise the new transport independently while public-global wiring remains
+// incomplete. The existing public WebSocket checks remain in the same run.
+import {WebSocket as CandidateWebSocket} from ${JSON.stringify(consumer + "/node_modules/cf-workers-native/dist/browser/websocket/endpoint.js")};
 import {workersCapacitor} from ${JSON.stringify(consumer + "/node_modules/cf-workers-native/dist/index.js")};
-const runNativeNetwork = async ports => {const runtime=workersCapacitor({baseURL:"https://network-lifecycle.invalid",worker:{fetch(){return new Response("unused")}}});try{await runtime.ready;return {http:await runNetworkLifecycle({http,https},ports),tls:await runTlsLifecycle({net,tls},ports),websocket:await runWebSocketLifecycle(http.WebSocket,ports),fsLifetime:await runFsLifetime(),websocketSurface:runWebSocketSurface()}}finally{await runtime.dispose()}};
+import {observeAttachments} from ${JSON.stringify(root + "/src/browser/websocket/attachment.observations.spec.mjs")};
+const runNativeNetwork = async ports => {const runtime=workersCapacitor({baseURL:"https://network-lifecycle.invalid",worker:{fetch(){return new Response("unused")}}});try{await runtime.ready;return {http:await runNetworkLifecycle({http,https},ports),tls:await runTlsLifecycle({net,tls},ports),websocket:await runWebSocketLifecycle(http.WebSocket,ports),websocketCandidate:await runWebSocketLifecycle(CandidateWebSocket,ports),fsLifetime:await runFsLifetime(),websocketSurface:runWebSocketSurface(),websocketAttachments:await observeAttachments({WebSocketPair,Blob,Headers,Request,Response,wasmModule:new WebAssembly.Module(Uint8Array.of(0,97,115,109,1,0,0,0))})}}finally{await runtime.dispose()}};
 import {localBoundaryCases} from ${JSON.stringify(root + "/src/compat/expansion/boundaries.spec.mjs")};
 import { AsyncLocalStorage } from 'node:async_hooks';
 import process from 'node:process';
@@ -145,19 +149,19 @@ export const run = name => measureOperation(name,()=>(eventCases[name] ?? localB
 export {createNetworkRelay, initializeWorkerNetwork} from ${JSON.stringify(consumer + "/node_modules/cf-workers-native/dist/browser/fetch/relay.js")};
 export const runTls = async ({port,upgradePort,networkPorts}) => {
  const attempt = (servername,halfClose=false) => new Promise((resolve,reject)=> {
-  let accepted=false, body='';
+  let secureConnect=false, body='';
   const socket=tls.connect({host:'127.0.0.1',port,servername});
   const timer=setTimeout(()=>{socket.destroy();reject(new Error('TLS timeout: '+servername));},8000);
-  socket.on('secureConnect',()=>{accepted=socket.authorized && socket.encrypted;socket[halfClose?'end':'write']('GET /tls-native HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n');});
+  socket.on('secureConnect',()=>{secureConnect=socket.authorized && socket.encrypted;socket[halfClose?'end':'write']('GET /tls-native HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n');});
   socket.on('data',chunk=>{body+=chunk.toString();});
-  socket.on('error',()=>{clearTimeout(timer);resolve({accepted,received:false});});
-  socket.on('end',()=>{clearTimeout(timer);resolve({accepted,received:body.includes('404') && body.includes('Not found')});});
+  socket.on('error',()=>{clearTimeout(timer);resolve({secureConnect,received:false});});
+  socket.on('end',()=>{clearTimeout(timer);resolve({secureConnect,received:body.includes('404') && body.includes('Not found')});});
  });
  const valid=await attempt('localhost'), directEnd=await attempt('localhost',true), invalid=await attempt('wrong.invalid');
 
  const upgrade = (servername,halfClose=false,legacy=false) => new Promise((resolve,reject)=>{
   const plain=net.connect({host:'127.0.0.1',port:upgradePort});
-  let socket=plain, accepted=false, body='', greeting='';
+  let socket=plain, secureConnect=false, body='', greeting='';
   const timer=setTimeout(()=>{socket.destroy();plain.destroy();reject(new Error('Upgrade timeout: '+servername));},8000);
   plain.on('error',()=>{});
   plain.on('connect',()=>plain.write(legacy==='untrusted'?'UNTRUSTED\\r\\n':legacy?'UPGRADE12\\r\\n':'UPGRADE\\r\\n'));
@@ -166,10 +170,10 @@ export const runTls = async ({port,upgradePort,networkPorts}) => {
    plain.off('data',onGreeting);
    if(greeting!=='READY\\r\\n'){clearTimeout(timer);plain.destroy();reject(new Error('Invalid upgrade greeting'));return;}
    socket=tls.connect({socket:plain,servername});
-   socket.on('secureConnect',()=>{accepted=socket.authorized&&socket.encrypted;});
+   socket.on('secureConnect',()=>{secureConnect=socket.authorized&&socket.encrypted;});
    socket.on('data',chunk=>{body+=chunk.toString();});
-   socket.on('end',()=>{clearTimeout(timer);socket.destroy();plain.destroy();resolve({accepted,received:body==='encrypted-response'});});
-   socket.on('error',()=>{clearTimeout(timer);plain.destroy();resolve({accepted,received:false});});
+   socket.on('end',()=>{clearTimeout(timer);socket.destroy();plain.destroy();resolve({secureConnect,received:body==='encrypted-response'});});
+   socket.on('error',()=>{clearTimeout(timer);plain.destroy();resolve({secureConnect,received:false});});
    if(halfClose)socket.end('encrypted-request');else socket.write('encrypted-request');
   };
   plain.on('data',onGreeting);
@@ -444,6 +448,7 @@ try {
     `${tlsDirectory}/ca.pem`,
     `${artifacts}/network-baseline`,
   );
+  networkExpected.websocketCandidate = networkExpected.websocket;
 } catch (error) {
   await networkFixture.close();
   for (const socket of upgradeSockets) socket.destroy();
@@ -610,17 +615,17 @@ await runNativeAcceptance({
     for (const mode of ["page", "worker"])
       assert.deepEqual(completed.nativeTls[mode], {
         network: networkExpected,
-        valid: { accepted: true, received: true },
-        directEnd: { accepted: true, received: true },
-        invalid: { accepted: false, received: false },
-        upgrade: { accepted: true, received: true },
+        valid: { secureConnect: true, received: true },
+        directEnd: { secureConnect: true, received: true },
+        invalid: { secureConnect: false, received: false },
+        upgrade: { secureConnect: true, received: true },
         upgradeEnd: Array.from({ length: 3 }, () => ({
-          accepted: true,
+          secureConnect: true,
           received: true,
         })),
-        upgradeTls12: { accepted: true, received: true },
-        upgradeUntrusted: { accepted: false, received: false },
-        upgradeInvalid: { accepted: false, received: false },
+        upgradeTls12: { secureConnect: true, received: true },
+        upgradeUntrusted: { secureConnect: true, received: false },
+        upgradeInvalid: { secureConnect: true, received: false },
       });
     // Fragmented module URLs must still instantiate a fresh backend per case.
     for (const mode of ["page", "worker"])

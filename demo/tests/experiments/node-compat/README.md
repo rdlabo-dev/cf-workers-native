@@ -43,3 +43,9 @@ subsequently and may still fail. Current TLS and WebSocket implementation gaps
 remain failures, not skipped or accepted differences. The reports, generated
 harness, compiled hash and workerd baseline live under
 `demo/artifacts/node-inventory/native-expansion/<platform>/`.
+
+The narrowly approved attachment size-accounting boundary is documented in the
+[WebSocket candidate notes](../../../../src/browser/websocket/README.md). Run
+`node --test demo/tests/experiments/node-compat/websocket-attachment-boundary.probe.mjs`
+to reproduce its pinned Workers observations. This reference probe does not
+certify the candidate or exempt network failures from acceptance.

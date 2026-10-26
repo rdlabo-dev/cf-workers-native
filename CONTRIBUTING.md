@@ -69,6 +69,22 @@ not ship it behind an experimental flag as a substitute for finishing it. Design
 notes and reproducible experiments can be reviewed independently without adding
 unfinished production behavior.
 
+### Explicit WebSocket attachment representation boundary
+
+The WebView WebSocket attachment implementation may use a documented canonical
+serialization representation for its 16,384-byte limit. This is an explicitly
+authorized boundary: V8 can serialize arrays with identical observable values
+and properties to different lengths depending on its private packed/holey storage
+representation, which JavaScriptCore cannot inspect or reproduce.
+
+This exception covers only limit decisions and reported byte lengths that depend
+on engine-private representation. It does not waive snapshot isolation, cyclic
+references, supported value types, validation, ordinary size-limit enforcement,
+or any other WebSocket API, network behavior, or native acceptance requirement.
+See the [scope and reproducible boundary probe](src/browser/websocket/README.md).
+The canonical representation must be documented and verified before acceptance;
+this exception does not itself certify the current implementation.
+
 ### Explicit WebView events profile
 
 The approved events work targets the current WebView architecture with documented

@@ -1,4 +1,6 @@
 import { storeHTTPOptions } from "./server-options.js";
+import { WebSocket } from "../../browser/websocket/endpoint.js";
+import { CloseEvent } from "../../browser/websocket/close-event.js";
 import { asyncDispose } from "../../shared/globals/symbols.js";
 // Copyright (c) 2017-2026 Cloudflare, Inc.
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
@@ -1582,8 +1584,7 @@ export function setMaxIdleHTTPParsers(max: unknown): never {
 export function _connectionListener(): never {
   throw notImplemented("_connectionListener");
 }
-export const WebSocket = globalThis.WebSocket;
-export const CloseEvent = globalThis.CloseEvent;
+export { WebSocket, CloseEvent };
 export const MessageEvent = globalThis.MessageEvent;
 
 export default {

@@ -35,7 +35,7 @@ export default defineConfig({
       name: "test-wasm-binary",
       async load(id) {
         if (
-          !/\/(?:brotli_dec_wasm_bg|native-crypto|native-cipher)\.wasm$/.test(
+          !/\/(?:brotli_dec_wasm_bg|native-crypto|native-cipher|native-zlib)\.wasm$/.test(
             id,
           )
         )
@@ -92,6 +92,11 @@ export default defineConfig({
       "src/compat/fs/glob.spec.ts",
       "src/compat/fs/directory.spec.ts",
       "src/shared/http-wire/index.spec.ts",
+      "src/browser/websocket/frames.spec.ts",
+      "src/browser/websocket/native.spec.ts",
+      "src/browser/websocket/endpoint.spec.ts",
+      "src/browser/websocket/attachment-size.spec.ts",
+      "src/browser/websocket/compression.spec.ts",
     ],
   },
 });

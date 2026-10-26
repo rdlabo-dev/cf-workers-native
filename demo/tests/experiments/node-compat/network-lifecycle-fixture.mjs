@@ -136,16 +136,47 @@ export async function createLifecycleFixture({ key, cert, mismatchCert }) {
     { key, cert: mismatchCert ?? cert },
     handler,
   );
-  const websocketServers = [http, https].map((server) => {
-    const websocket = new WebSocketServer({ server });
-    websocket.on("connection", (peer) =>
-      peer.on("message", (data, isBinary) => {
-        if (!isBinary && data.toString() === "close-me")
-          peer.close(1001, "server");
-        else peer.send(data, { binary: isBinary });
+  const websocketServers = [http, https].flatMap((server) => {
+    const variants = new Map(
+      [
+        ["/websocket", false],
+        ["/websocket/compressed", {}],
+        [
+          "/websocket/reset",
+          {
+            serverNoContextTakeover: true,
+            clientNoContextTakeover: true,
+            serverMaxWindowBits: 10,
+          },
+        ],
+      ].map(([path, perMessageDeflate]) => {
+        const websocket = new WebSocketServer({
+          noServer: true,
+          perMessageDeflate,
+        });
+        websocket.on("connection", (peer) =>
+          peer.on("message", (data, isBinary) => {
+            if (!isBinary && data.toString() === "close-me")
+              peer.close(1001, "server");
+            else peer.send(data, { binary: isBinary });
+          }),
+        );
+        return [path, websocket];
       }),
     );
-    return websocket;
+    server.on("upgrade", (request, socket, head) => {
+      const websocket = variants.get(
+        new URL(request.url, "http://localhost").pathname,
+      );
+      if (!websocket) {
+        socket.destroy();
+        return;
+      }
+      websocket.handleUpgrade(request, socket, head, (peer) =>
+        websocket.emit("connection", peer, request),
+      );
+    });
+    return [...variants.values()];
   });
   const servers = {
     mismatchHttps,

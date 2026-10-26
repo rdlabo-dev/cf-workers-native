@@ -45,7 +45,7 @@ const assessments = [
     modules: ["process", "console"],
     priority: 2,
     category: "implementation-and-host-integration",
-    next: "Classify each export as functional or a pinned Workers stub; verify scheduling, streams, events and host-specific introspection independently. Do not substitute standalone Node behavior.",
+    next: "Configuration, environment-file loading and standard stream input now have shared behavioral contracts. abort, reallyExit and getBuiltinModule remain unimplemented; termination and builtin lookup require host integration. Audit the remaining process/console operations independently; selected cases do not certify the modules.",
     evidence: ["surface-gaps.json"],
   },
   {
@@ -104,7 +104,7 @@ const assessments = [
     ],
     priority: 2,
     category: "implementation-and-native-transport",
-    next: "Direct TLS and same-connection STARTTLS exchange/hostname rejection are tested in page and Dedicated Worker on both OSes. TLS 1.2/1.3 and repeated write-half-close are covered on both OSes; custom Duplex wrapping remains unsupported. Audit remaining class/prototype/state/event contracts; these scenarios do not certify the whole TLS/server API.",
+    next: "Direct TLS and same-connection STARTTLS exchange/hostname rejection are tested in page and Dedicated Worker on both OSes. TLS 1.2/1.3 and repeated write-half-close are covered on both OSes; custom Duplex wrapping remains unsupported. Native WS/WSS, compression/context takeover, pair and attachment contracts are included, with only the documented engine-private attachment-size boundary. Audit remaining class/prototype/state/event contracts; these scenarios do not certify the whole TLS/server/WebSocket API.",
     evidence: ["surface-gaps.json", "../../../../docs/compatibility.md"],
   },
   {

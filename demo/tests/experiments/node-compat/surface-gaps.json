@@ -1,57 +1,16 @@
 {
   "common": {
-    "crypto": {
-      "missing": ["fips", "getCipherInfo", "getFips"],
-      "extra": ["createCredentials", "listCiphers", "prng", "rng"]
-    },
     "fs": {
       "extra": ["clearVirtualFiles", "registerVirtualFiles"]
     },
     "process": {
-      "missing": [
-        "_channel",
-        "_disconnect",
-        "_events",
-        "_eventsCount",
-        "_handleQueue",
-        "_maxListeners",
-        "_pendingMessage",
-        "_send",
-        "abort",
-        "argv0",
-        "assert",
-        "config",
-        "getBuiltinModule",
-        "loadEnvFile",
-        "openStdin",
-        "reallyExit",
-        "stderr",
-        "stdin",
-        "stdout"
-      ],
-      "extra": [
-        "addListener",
-        "browser",
-        "emit",
-        "listeners",
-        "off",
-        "on",
-        "once",
-        "prependListener",
-        "prependOnceListener",
-        "removeAllListeners",
-        "removeListener",
-        "uvCounters"
-      ]
+      "missing": ["abort", "getBuiltinModule", "reallyExit"]
     },
     "sys": {
       "missing": ["getCallSite", "getCallSites"]
     },
     "util": {
       "missing": ["getCallSite", "getCallSites"]
-    },
-    "zlib": {
-      "extra": ["Zlib"]
     }
   },
   "chromium": {},

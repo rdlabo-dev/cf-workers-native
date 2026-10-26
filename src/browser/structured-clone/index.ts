@@ -1,4 +1,6 @@
 import { isURLInstance } from "../../compat/url/brand.js";
+import { isSharedBuffer } from "../../shared/buffer-source.js";
+import { isWebSocketPair } from "../websocket/brand.js";
 import { platform } from "../../shared/globals/platform.js";
 import { cloneHeaders, Headers } from "../headers/index.js";
 import { Request, structuredCloneRequestSnapshot } from "../request/index.js";
@@ -52,6 +54,7 @@ type RequestSnapshot = {
 type ResponseSnapshot = {
   status: number;
   statusText: string;
+  serializedStatusText?: string;
   headers: Headers;
   cf: Record<string, unknown> | undefined;
   encodeBody: "automatic" | "manual";
@@ -62,6 +65,14 @@ type ResponseSnapshot = {
   hasBody: boolean;
 };
 type Metadata =
+  | {
+      type: "shared-attachment";
+      value:
+        | SharedArrayBuffer
+        | ArrayBufferView
+        | WebAssembly.Module
+        | WebAssembly.Memory;
+    }
   | { type: "blob"; value: WorkersBlob }
   | { type: "headers"; value: Headers }
   | { type: "request"; value: RequestSnapshot }
@@ -107,8 +118,9 @@ function nativeValue(value: object) {
     value instanceof RegExp ||
     value instanceof Blob ||
     value instanceof ArrayBuffer ||
-    (typeof SharedArrayBuffer === "function" &&
-      value instanceof SharedArrayBuffer) ||
+    isSharedBuffer(value) ||
+    value instanceof WebAssembly.Module ||
+    value instanceof WebAssembly.Memory ||
     ArrayBuffer.isView(value)
   );
 }
@@ -134,7 +146,7 @@ function errorName(error: Error) {
 function encode(
   value: unknown,
   tag: string,
-  metadata: Metadata[],
+  metadata: Metadata[] & { attachment?: boolean },
   seen: Map<object, unknown>,
   transferred: Set<ArrayBuffer>,
   markers: object[],
@@ -153,6 +165,59 @@ function encode(
   if (boxedSymbol(value))
     throw dataCloneError("[object Symbol] could not be cloned.");
   if (seen.has(value)) return seen.get(value);
+  const wasmMemoryBuffer =
+    value instanceof WebAssembly.Memory
+      ? Object.getOwnPropertyDescriptor(
+          WebAssembly.Memory.prototype,
+          "buffer",
+        )!.get!.call(value)
+      : undefined;
+  if (wasmMemoryBuffer && !isSharedBuffer(wasmMemoryBuffer))
+    throw dataCloneError("#<Memory> could not be cloned.");
+  for (const [name, Constructor] of [
+    ["Instance", WebAssembly.Instance],
+    ["Table", WebAssembly.Table],
+    ["Global", WebAssembly.Global],
+  ] as const)
+    if (value instanceof Constructor)
+      throw dataCloneError(`#<${name}> could not be cloned.`);
+  if (
+    metadata.attachment &&
+    (value instanceof WebAssembly.Module ||
+      value instanceof WebAssembly.Memory ||
+      isSharedBuffer(value) ||
+      (ArrayBuffer.isView(value) && isSharedBuffer(viewField(value, "buffer"))))
+  ) {
+    const marker: Marker = { [tag]: metadata.length };
+    markers.push(marker);
+    seen.set(value, marker);
+    metadata.push({
+      type: "shared-attachment",
+      value: value as
+        | SharedArrayBuffer
+        | ArrayBufferView
+        | WebAssembly.Module
+        | WebAssembly.Memory,
+    });
+    return marker;
+  }
+  for (const [name, matches] of [
+    ["WebSocketPair", isWebSocketPair(value)],
+    [
+      "CryptoKey",
+      typeof CryptoKey === "function" && value instanceof CryptoKey,
+    ],
+    ["FormData", value instanceof FormData],
+    [
+      "MessageChannel",
+      typeof MessageChannel === "function" && value instanceof MessageChannel,
+    ],
+    ["Event", value instanceof Event],
+  ] as const)
+    if (matches)
+      throw dataCloneError(
+        `Could not serialize object of type "${name}". This type does not support serialization.`,
+      );
 
   if (value instanceof WorkersFile)
     throw dataCloneError(
@@ -273,17 +338,30 @@ function encode(
         transferred,
         markers,
       );
-    for (const key of Object.keys(value)) {
+    for (const key of Object.getOwnPropertyNames(value)) {
       if (["stack", "message", "cause", "errors"].includes(key)) continue;
+      const index = Number(key);
+      if (
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < 0xffffffff &&
+        String(index) === key
+      )
+        continue;
       marker.properties ??= {} as Record<string, unknown>;
-      (marker.properties as Record<string, unknown>)[key] = encode(
-        (value as unknown as Record<string, unknown>)[key],
-        tag,
-        metadata,
-        seen,
-        transferred,
-        markers,
-      );
+      Object.defineProperty(marker.properties, key, {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: encode(
+          (value as unknown as Record<string, unknown>)[key],
+          tag,
+          metadata,
+          seen,
+          transferred,
+          markers,
+        ),
+      });
     }
     return marker;
   }
@@ -300,6 +378,10 @@ function encode(
   }
   if (value instanceof AbortSignal)
     throw dataCloneError("AbortSignal serialization is not enabled.");
+  if (value instanceof EventTarget)
+    throw dataCloneError(
+      `Could not serialize object of type "${value.constructor.name}". This type does not support serialization.`,
+    );
   for (const [type, Constructor] of [
     ["ReadableStream", ReadableStream],
     ["WritableStream", WritableStream],
@@ -370,7 +452,9 @@ function encode(
   if (
     value instanceof WeakMap ||
     value instanceof WeakSet ||
-    value instanceof Promise
+    value instanceof Promise ||
+    value instanceof WeakRef ||
+    value instanceof FinalizationRegistry
   )
     return platformStructuredClone(value);
 
@@ -506,7 +590,7 @@ function decode(
       return error;
     }
     const entry = metadata[Number(id)]!;
-    if (entry.type === "blob") {
+    if (entry.type === "blob" || entry.type === "shared-attachment") {
       seen.set(value, entry.value);
       return entry.value;
     }
@@ -536,6 +620,7 @@ function decode(
           | undefined,
         fetcher: null,
         cache: entry.value.cache,
+        encodeResponseBody: entry.value.encodeResponseBody,
       });
       seen.set(value, request);
       return request;
@@ -623,8 +708,20 @@ export function structuredClone<T>(
     throw new TypeError(
       "Failed to execute 'structuredClone' on 'ServiceWorkerGlobalScope': parameter 1 is not of type 'Value'.",
     );
-  const transfer = transfers(options);
-  const metadata: Metadata[] = [];
+  return snapshot(value, transfers(options));
+}
+/** Attachment bytes omit the shared-memory external table. Retain only the
+ * brand while validating/counting; deserializeAttachment always rejects it. */
+export function cloneAttachment<T>(value: T): T {
+  return snapshot(value, [], true);
+}
+function snapshot<T>(
+  value: T,
+  transfer: Transferable[],
+  attachment = false,
+): T {
+  const metadata: Metadata[] & { attachment?: boolean } = [];
+  metadata.attachment = attachment;
   const tag = "__workers_capacitor_clone__";
   const markers: object[] = [];
   const encoded = encode(
@@ -647,3 +744,4 @@ export function structuredClone<T>(
 Object.defineProperty(structuredClone, "length", { value: 0 });
 
 Object.defineProperty(structuredClone, "name", { value: "structuredClone" });
+import type { WebSocket } from "../websocket/endpoint.js";

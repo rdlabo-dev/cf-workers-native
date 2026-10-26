@@ -505,7 +505,15 @@ export const DhLargeGeneratorParam = {
 // Test that invalid public keys are rejected by setPublicKey and computeSecret.
 export const dhPubKeyValidation = {
   test() {
-    const dh = crypto.createDiffieHellman(1024);
+    // Local adaptation: this case tests public-key validation, not random safe
+    // prime generation. Use the fixed 1024-bit MODP prime to avoid unbounded
+    // setup time; numeric generation has a separate shared Workers contract.
+    const dh = crypto.createDiffieHellman(
+      Buffer.from(
+        "ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece65381ffffffffffffffff",
+        "hex",
+      ),
+    );
     dh.generateKeys();
     const prime = dh.getPrime();
 

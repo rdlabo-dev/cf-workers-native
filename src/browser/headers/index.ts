@@ -88,8 +88,14 @@ export type HeadersInit =
   | Headers
   | Iterable<Iterable<unknown>>
   | Record<string, unknown>;
+/** Internal serialization preserves separate values before display joins them. */
+export let serializedHeaderFields: (headers: Headers) => [string, string[]][];
 export class Headers {
   #fields = new Map<string, string[]>();
+  static {
+    serializedHeaderFields = (headers) =>
+      [...headers.#fields].map(([name, values]) => [name, [...values]]);
+  }
   constructor(init: HeadersInit | undefined = undefined) {
     if (init === undefined) return;
     if (

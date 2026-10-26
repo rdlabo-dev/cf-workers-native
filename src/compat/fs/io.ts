@@ -217,10 +217,26 @@ export function installIo(api: any, promises: any) {
       ];
     },
     (path: any, encoding: any) => {
-      const data =
-        typeof path === "number"
-          ? readDescriptor(path)
-          : raw.readFileSync(path);
+      let data;
+      try {
+        data =
+          typeof path === "number"
+            ? readDescriptor(path)
+            : raw.readFileSync(path);
+      } catch (error) {
+        if (typeof path === "string" && (error as any)?.code === "ENOENT") {
+          throw Object.assign(
+            new Error(`no such file or directory, readAll '${path}'`),
+            {
+              code: "ENOENT",
+              errno: -2,
+              syscall: "readAll",
+              path,
+            },
+          );
+        }
+        throw error;
+      }
       return typeof encoding === "string" ? data.toString(encoding) : data;
     },
   );

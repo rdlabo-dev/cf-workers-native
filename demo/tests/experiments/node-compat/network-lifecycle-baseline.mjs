@@ -9,6 +9,7 @@ import { runTlsLifecycle } from "../../../../src/compat/tls/network.spec.mjs";
 import { runWebSocketLifecycle } from "../../../../src/compat/http/websocket-network.spec.mjs";
 import { createFsLifetimeContract } from "../../../../src/compat/fs/request-lifetime.spec.mjs";
 import { runWebSocketSurface } from "../../../../src/compat/http/websocket-surface.spec.mjs";
+import { observeAttachments } from "../../../../src/browser/websocket/attachment.observations.spec.mjs";
 const root = fileURLToPath(new URL("../../../..", import.meta.url));
 export async function networkLifecycleBaseline(ports, caPath, directory) {
   const profile = JSON.parse(
@@ -28,11 +29,15 @@ export async function networkLifecycleBaseline(ports, caPath, directory) {
   await new Promise((resolve) => reserve.close(resolve));
   await writeFile(
     join(directory, "worker.mjs"),
-    `import * as http from 'node:http';import * as https from 'node:https';import * as net from 'node:net';import * as tls from 'node:tls';import * as fs from 'node:fs';${createFsLifetimeContract.toString()};const fsStep=createFsLifetimeContract(fs);${runNetworkLifecycle.toString()};${runTlsLifecycle.toString()};${runWebSocketLifecycle.toString()};${runWebSocketSurface.toString()};export default{async fetch(request){if(new URL(request.url).pathname.startsWith('/fs-'))return Response.json(await fsStep(new URL(request.url).pathname.slice(4),new URL(request.url).searchParams.get('kind')));if(new URL(request.url).pathname==='/ready')return new Response('ready');return Response.json({http:await runNetworkLifecycle({http,https},${JSON.stringify(ports)}),tls:await runTlsLifecycle({net,tls},${JSON.stringify(ports)}),websocket:await runWebSocketLifecycle(http.WebSocket,${JSON.stringify(ports)}),websocketSurface:runWebSocketSurface()})}}`,
+    `import wasmModule from './attachment.wasm';import * as http from 'node:http';import * as https from 'node:https';import * as net from 'node:net';import * as tls from 'node:tls';import * as fs from 'node:fs';${createFsLifetimeContract.toString()};const fsStep=createFsLifetimeContract(fs);${runNetworkLifecycle.toString()};${runTlsLifecycle.toString()};${runWebSocketLifecycle.toString()};${runWebSocketSurface.toString()};${observeAttachments.toString()};export default{async fetch(request){if(new URL(request.url).pathname.startsWith('/fs-'))return Response.json(await fsStep(new URL(request.url).pathname.slice(4),new URL(request.url).searchParams.get('kind')));if(new URL(request.url).pathname==='/ready')return new Response('ready');return Response.json({http:await runNetworkLifecycle({http,https},${JSON.stringify(ports)}),tls:await runTlsLifecycle({net,tls},${JSON.stringify(ports)}),websocket:await runWebSocketLifecycle(http.WebSocket,${JSON.stringify(ports)}),websocketSurface:runWebSocketSurface(),websocketAttachments:await observeAttachments({WebSocketPair,Blob,Headers,Request,Response,wasmModule})})}}`,
+  );
+  await writeFile(
+    join(directory, "attachment.wasm"),
+    Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0),
   );
   await writeFile(
     join(directory, "config.capnp"),
-    `using Workerd = import "/workerd.capnp";const config :Workerd.Config = (services=[(name="main",worker=(modules=[(name="worker.mjs",esModule=embed "worker.mjs")],compatibilityDate="${profile.compatibilityDate}",compatibilityFlags=["nodejs_compat"],globalOutbound="network")),(name="network",network=(allow=["local"],tlsOptions=(trustBrowserCas=false,trustedCertificates=[${JSON.stringify(await readFile(caPath, "utf8"))}])) )],sockets=[(name="http",address="127.0.0.1:${port}",http=(),service="main")]);`,
+    `using Workerd = import "/workerd.capnp";const config :Workerd.Config = (services=[(name="main",worker=(modules=[(name="worker.mjs",esModule=embed "worker.mjs"),(name="attachment.wasm",wasm=embed "attachment.wasm")],compatibilityDate="${profile.compatibilityDate}",compatibilityFlags=["nodejs_compat"],globalOutbound="network")),(name="network",network=(allow=["local"],tlsOptions=(trustBrowserCas=false,trustedCertificates=[${JSON.stringify(await readFile(caPath, "utf8"))}])) )],sockets=[(name="http",address="127.0.0.1:${port}",http=(),service="main")]);`,
   );
   const child = spawn(
     join(root, "demo/node_modules/workerd/bin/workerd"),

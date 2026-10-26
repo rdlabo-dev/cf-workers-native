@@ -6142,6 +6142,85 @@ export const eventCases = {
     });
   },
 
+  processConfiguration: function ({ process }) {
+    return {
+      argv0: process.argv0,
+      config: process.config,
+      frozen: [
+        Object.isFrozen(process.config),
+        Object.isFrozen(process.config.variables),
+        Object.isFrozen(process.config.target_defaults),
+      ],
+      undefinedFields: [
+        "assert",
+        "_channel",
+        "_disconnect",
+        "_handleQueue",
+        "_pendingMessage",
+        "_send",
+      ].map((name) => [
+        name,
+        Object.hasOwn(process, name),
+        process[name] === undefined,
+      ]),
+    };
+  },
+  processEnvironmentFile: function ({ process, fs }) {
+    const path = "/tmp/process-environment-contract.env";
+    const key = "CF_NATIVE_PROCESS_CONTRACT";
+    const before = process.env[key];
+    const errors = [];
+    try {
+      process.env[key] = "old";
+      fs.writeFileSync(path, `${key}="new value" # comment\n`);
+      const result = process.loadEnvFile(path);
+      const loaded = process.env[key];
+      process.loadEnvFile(new URL(`file://${path}`));
+      for (const value of ["/tmp/no-such-process-env", null]) {
+        try {
+          process.loadEnvFile(value);
+        } catch (e) {
+          errors.push([e.name, e.code ?? null, e.message]);
+        }
+      }
+      return { result: result ?? null, loaded, url: process.env[key], errors };
+    } finally {
+      fs.unlinkSync(path);
+      if (before === undefined) delete process.env[key];
+      else process.env[key] = before;
+    }
+  },
+  processStdio: async function ({ process, classicStreams }) {
+    const streams = [process.stdin, process.stdout, process.stderr];
+    const fields = streams.map((stream) =>
+      Object.fromEntries(
+        [
+          "fd",
+          "_type",
+          "_isStdio",
+          "allowHalfOpen",
+          "bufferSize",
+          "connecting",
+          "readyState",
+          "readable",
+          "writable",
+        ].map((key) => [key, stream[key] ?? null]),
+      ),
+    );
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push([...chunk]);
+    return {
+      fields,
+      types: [
+        process.stdin instanceof classicStreams.Readable,
+        process.stdout instanceof classicStreams.Writable,
+        process.stderr instanceof classicStreams.Writable,
+      ],
+      same: process.openStdin() === process.stdin,
+      chunks,
+    };
+  },
+
   processClock: function ({ process }) {
     const now = Date.now;
     try {

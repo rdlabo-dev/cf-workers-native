@@ -53,7 +53,7 @@ function spliceOne(list: unknown[], index: number) {
   for (; index + 1 < list.length; index++) list[index] = list[index + 1];
   list.pop();
 }
-import { nextTick, emitWarning } from "../process/index.js";
+import { nextTick, emitWarning } from "../process/scheduling.js";
 import { default as async_hooks } from "node:async_hooks";
 const { AsyncResource } = async_hooks;
 
