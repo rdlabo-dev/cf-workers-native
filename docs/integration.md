@@ -87,7 +87,7 @@ For the Vite example below, install `vite@7` as a dev dependency if it is not al
 Set the application's own ID/name and `webDir: "www"`. Use Swift Package Manager for iOS; this library does not include CocoaPods integration. Install the npm Preview using its exact version. The `latest` tag includes 0.x Preview releases:
 
 ```sh
-npm install --save-exact cf-workers-native@0.1.5
+npm install --save-exact cf-workers-native@0.1.7
 ```
 
 For a source build instead, create a package tarball from a checkout of this repository:
@@ -98,7 +98,7 @@ npm install
 npm pack
 
 # In the application package:
-npm install /path/to/cf-workers-native/cf-workers-native-0.1.5.tgz
+npm install /path/to/cf-workers-native/cf-workers-native-0.1.7.tgz
 ```
 
 `npm pack` runs the SDK build through `prepack`. Install the generated tarball rather than the checkout directory: directory installs can create a symlink back to the SDK tree, including a recursive path when the app lives inside that checkout. The tarball filename above uses the current source version.
@@ -107,11 +107,11 @@ The installed package is named `cf-workers-native`; the checkout directory can r
 
 ### Migrating from the old npm package
 
-If your application already depends on `workers-capacitor`, remove it before installing the renamed package. Keeping both dependencies can make Capacitor discover and register the same native plugin twice. In the application package, using 0.1.5:
+If your application already depends on `workers-capacitor`, remove it before installing the renamed package. Keeping both dependencies can make Capacitor discover and register the same native plugin twice. In the application package, using 0.1.7:
 
 ```sh
 npm uninstall workers-capacitor
-npm install --save-exact cf-workers-native@0.1.5
+npm install --save-exact cf-workers-native@0.1.7
 ```
 
 Change runtime imports from `workers-capacitor` to `cf-workers-native/capacitor`, and change other package subpaths to the `cf-workers-native` prefix. Rebuild the application's mobile web assets with its existing build command, then run `npx cap sync` to regenerate native plugin dependencies. New applications use the installation steps above directly.

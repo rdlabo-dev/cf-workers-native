@@ -33,6 +33,21 @@ function setup(
   return { runtime, handler, send };
 }
 for (const prefer of ["direct", "worker"] as const) {
+  it(`${prefer}: a failed remote mutation is neither retried nor executed locally`, async () => {
+    const send = vi.fn(async (_request: Request): Promise<Response> => {
+      throw new TypeError("Connection lost after sending");
+    });
+    const { runtime, handler } = setup(prefer, undefined, send);
+    await runtime.ready;
+    await expect(
+      runtime.fetch("https://same.example/api/items", {
+        method: "POST",
+        body: "mutation",
+      }),
+    ).rejects.toThrow("Connection lost after sending");
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(handler.fetch).not.toHaveBeenCalled();
+  });
   it(`${prefer}: sends remote routes before user code, reusing the existing HTTP request`, async () => {
     let token = "first";
     const getToken = vi.fn(() => token);

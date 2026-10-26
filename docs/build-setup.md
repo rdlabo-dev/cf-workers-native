@@ -31,13 +31,26 @@ application's runtime import changes; Worker source and execution options are sh
 | Android   | `workersAndroid` from `cf-workers-native/android`     | [Existing Android app](native-embedding.md#android) |
 | Capacitor | `workersCapacitor` from `cf-workers-native/capacitor` | [Capacitor app](integration.md)                     |
 
-Use `cf-workers-native@0.1.5` with matching
+Use `cf-workers-native@0.1.7` with matching
 native dependencies; see [dependency setup](native-embedding.md#dependency-setup).
 Build the corresponding entry for each target, then package the entire output
 directory. Existing Capacitor examples below use `workersCapacitor`; the same
 options apply to `workersIOS` and `workersAndroid` in their SDK hosts.
 
 ## Frameworks
+
+For the first mobile build, keep the default network execution and configure the
+deployed Worker's HTTPS URL. Unsupported server APIs can stay on that Worker;
+they do not need local polyfills. A client-side library that rejects the WebView
+origin before sending a request still needs an integration change. Remote dispatch
+does not repair that client initialization failure.
+
+Network execution requires connectivity. A failed mutation is reported to the
+caller without automatic replay. Route selection happens before a local handler
+runs; a local exception never causes the request to be retried remotely. If an
+optional local route cannot be safely split, keep the whole Worker remote and
+inspect the generated binding report. Explicit `execution: "local"` requires its
+own supported API profile and does not opt into this fallback.
 
 The following integrations have examples and verification evidence. Support is
 scoped to the execution paths described here; see the [compatibility limits](compatibility.md)

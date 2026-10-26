@@ -66,7 +66,7 @@ Install the package in your web project, then follow the
 [complete mobile setup](docs/integration.md#workflow):
 
 ```sh
-npm install --save-exact cf-workers-native@0.1.5
+npm install --save-exact cf-workers-native@0.1.7
 ```
 
 Installation alone does not generate a mobile project. The guide covers adding
@@ -84,7 +84,7 @@ Open your application repository and give your assistant this prompt:
 
 ```text
 Read https://github.com/rdlabo-dev/cf-workers-native/blob/main/docs/integration.md.
-Add an iOS and Android version of this Workers web app using cf-workers-native@0.1.5
+Add an iOS and Android version of this Workers web app using cf-workers-native@0.1.7
 and Capacitor. Preserve the existing pages, backend and Cloudflare deployment configuration.
 Use an existing test Worker for cloud-backed requests; ask before any cloud deployment.
 Start by verifying one page, navigation and a form or data action on a simulator/emulator.

@@ -77,6 +77,33 @@ it("network emits no Worker implementation", async () => {
     { kv_namespaces: [{ binding: "KV" }], assets: { directory: "public" } },
   );
 });
+it.each([undefined, "network"] as const)(
+  "remote execution does not resolve or evaluate server-only dependencies: %s",
+  async (execution) => {
+    await fixture(
+      { execution },
+      async (graph) => {
+        const result = await graph.get();
+        expect(result.requiresRemote).toBe(true);
+        expect(result.local + result.selector).not.toMatch(
+          /missing-server-sdk|SERVER_SECRET_CANARY|node:child_process/,
+        );
+        const { needsRemote } = await load(result.selector);
+        for (const method of ["GET", "POST", "DELETE"])
+          expect(
+            await needsRemote(
+              new Request("https://local.invalid/items", { method }),
+            ),
+          ).toBe(true);
+        await load(result.local);
+      },
+      `import sdk from 'missing-server-sdk';
+       import { spawn } from 'node:child_process';
+       throw new Error('SERVER_SECRET_CANARY');
+       export default { fetch() { return sdk(spawn); } };`,
+    );
+  },
+);
 it("route selection grants dependency distribution only to selected methods and routes", async () => {
   await fixture(
     {
