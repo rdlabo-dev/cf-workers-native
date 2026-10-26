@@ -80,6 +80,10 @@ try {
     console.log(`Workers baseline: ${name}`);
     const response = await runtime.dispatchFetch(
       `https://events.invalid/${name}`,
+      // Crypto contracts can occupy workerd longer than the transport's idle
+      // keep-alive window. Each independent oracle request uses a fresh
+      // connection; never retry or substitute a failed contract result.
+      { headers: { Connection: "close" } },
     );
     assert.equal(
       response.status,
