@@ -83,11 +83,14 @@ environment, restricted to the `main` branch:
 
 The workflow builds and saves the signed ZIP, uploads it with automatic
 publication after Central validation, records the deployment ID in the run
-summary, and waits for publication and Maven distribution. It then builds the
-independent consumer using only Google and Maven Central. For emulator acceptance
+summary, and completes at `PUBLISHING` or `PUBLISHED`. State changes are also
+recorded. `PUBLISHING` means validation passed and Central accepted publication;
+it does not guarantee artifacts can already be downloaded. The workflow does
+not wait for distribution. Once the artifact is available, build the independent
+consumer using only Google and Maven Central. For emulator acceptance
 against the released artifact, run
 `node demo/tests/native-embedding/android/run.mjs emulator-5554 --central`.
 
 If upload or polling fails, inspect the deployment in Central Portal before
 retrying. An upload timeout may still have created a deployment; the workflow
-does not blindly retry uploads. A distribution timeout does not undo publication.
+does not blindly retry uploads. Do not upload the same version again while Central is publishing it.
