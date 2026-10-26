@@ -1,5 +1,6 @@
 import binary from "./native-crypto.wasm";
 import { aliases } from "./digests.js";
+import { viewBytes } from "../../shared/buffer-source.js";
 type API = Record<string, (...args: any[]) => any> & {
   memory: WebAssembly.Memory;
 };
@@ -490,12 +491,14 @@ export class NativeECDH {
     return result(api);
   }
   setPrivateKey(data: Uint8Array) {
+    data = viewBytes(data);
     inputs([data], (api, [p]) => {
       if (!api.wk_ec_set_private(this.pointer, p, data.byteLength))
         throw new Error("Private key is not valid for specified curve.");
     });
   }
   computeSecret(data: Uint8Array) {
+    data = viewBytes(data);
     return inputs([data], (api, [p]) => {
       const status = api.wk_ec_secret(this.pointer, p, data.byteLength);
       if (status !== 1)
@@ -510,6 +513,7 @@ export class NativeECDH {
     });
   }
   static convertKey(data: Uint8Array, curve: string, format: string) {
+    data = viewBytes(data);
     if (!data.byteLength) return new Uint8Array();
     const key = new NativeECDH(curve);
     try {

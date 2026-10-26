@@ -181,11 +181,12 @@ export function installIo(api: any, promises: any) {
       (fd: number, buffers: any[], position: any) => {
         let count = 0;
         for (const buffer of buffers) {
+          const bytes = viewBytes(buffer);
           const size = api[name === "readv" ? "readSync" : "writeSync"](
             fd,
-            buffer,
+            bytes,
             0,
-            buffer.byteLength,
+            bytes.byteLength,
             position === null ? null : Number(position) + count,
           );
           count += size;

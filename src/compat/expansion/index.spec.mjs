@@ -1,4 +1,18 @@
+import { cryptoCoverageCases } from "../crypto/coverage.spec.mjs";
+import { fsCoverageCases } from "../fs/coverage.spec.mjs";
+import { zlibCoverageCases } from "../zlib/coverage.spec.mjs";
+import { utilCoverageCases } from "../util/coverage.spec.mjs";
+import { httpCoverageCases } from "../http/coverage.spec.mjs";
+import { dnsCoverageCases } from "../dns/coverage.spec.mjs";
+import { diagnosticsCoverageCases } from "../diagnostics-channel/coverage.spec.mjs";
 export const eventCases = {
+  ...cryptoCoverageCases,
+  ...fsCoverageCases,
+  ...zlibCoverageCases,
+  ...utilCoverageCases,
+  ...httpCoverageCases,
+  ...dnsCoverageCases,
+  ...diagnosticsCoverageCases,
   httpEndBodyStates: async function ({ http: h, cloudflareNode: n }) {
     const out = {};
     for (const [id, chunk] of [
@@ -7160,6 +7174,7 @@ export const eventCases = {
       "_debug",
       "_findPath",
       "_initPaths",
+      "_preloadModules",
       "_load",
       "_resolveFilename",
       "_resolveLookupPaths",

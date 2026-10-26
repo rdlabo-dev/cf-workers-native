@@ -35,7 +35,9 @@ const root = fileURLToPath(new URL("../../../..", import.meta.url));
 const baseline = JSON.parse(
   await readFile(
     new URL(
-      "../../../artifacts/node-inventory/expansion-contracts-workerd.json",
+      requestedCases
+        ? "../../../artifacts/node-inventory/targeted/expansion-contracts-workerd.json"
+        : "../../../artifacts/node-inventory/expansion-contracts-workerd.json",
       import.meta.url,
     ),
     "utf8",
@@ -56,6 +58,12 @@ if (requestedCases)
   );
 assert.deepEqual(baseline.profile, profile);
 assert.deepEqual(Object.keys(baseline.results), Object.keys(eventCases));
+for (const [name, fn] of Object.entries(eventCases))
+  assert.equal(
+    baseline.sources?.[name],
+    createHash("sha256").update(fn.toString()).digest("hex"),
+    `Stale Workers contract: ${name}; rerun the matching public comparison`,
+  );
 const artifacts = fileURLToPath(
   new URL(
     `../../../artifacts/node-inventory/native-expansion/${platform}/`,

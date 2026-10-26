@@ -315,10 +315,10 @@ export function generateKeySync(
 ): SecretKeyObject {
   validateOneOf(type, "type", ["hmac", "aes"]);
   validateObject(options, "options");
-  if (type === "hmac")
-    validateInteger(options.length, "options.length", 8, 65536);
-  else validateOneOf(options.length, "options.length", [128, 192, 256]);
-  const material = new Uint8Array(Math.floor(options.length / 8));
+  const { length } = options;
+  if (type === "hmac") validateInteger(length, "options.length", 8, 65536);
+  else validateOneOf(length, "options.length", [128, 192, 256]);
+  const material = new Uint8Array(Math.floor(length / 8));
   globalThis.crypto.getRandomValues(material);
   return createSecretKey(material);
 }

@@ -38,7 +38,12 @@ from individual case and socket deadlines.
 
 `NODE_COMPAT_CASES=name,otherName` filters shared cases for diagnosis. It does not
 filter native network rows, and a filtered run is not full acceptance. Native
-`stage:complete` means all observations were collected; exact assertions run
+filtered runs read the matching `targeted/expansion-contracts-workerd.json`;
+run the public comparison with the same filter first. Every native case checks
+the SHA-256 of its function source against the oracle record, so editing a case
+requires regenerating its baseline.
+
+Native `stage:complete` means all observations were collected; exact assertions run
 subsequently and may still fail. Current TLS and WebSocket implementation gaps
 remain failures, not skipped or accepted differences. The reports, generated
 harness, compiled hash and workerd baseline live under
@@ -49,3 +54,29 @@ The narrowly approved attachment size-accounting boundary is documented in the
 `node --test demo/tests/experiments/node-compat/websocket-attachment-boundary.probe.mjs`
 to reproduce its pinned Workers observations. This reference probe does not
 certify the candidate or exempt network failures from acceptance.
+
+## API and test mapping
+
+`api-test-operations.json` maps reviewed operation scenarios to named contracts
+and execution targets. It distinguishes host-forwarding unit tests from shared
+behavior and expected-rejection comparisons. It is test metadata, not a record
+that a particular candidate passed. Keep execution logs and package/source hashes
+in generated artifacts and PR evidence.
+
+```sh
+node demo/tests/experiments/node-compat/api-test-map.mjs --write
+node --test demo/tests/experiments/node-compat/api-test-map.test.mjs
+```
+
+The generated `artifacts/validation/existing-api-coverage/api-test-map.json`
+lists every pinned module/export and source references to adjacent cases and
+fixtures. These token matches are navigation candidates, not verified behavioral
+coverage: dynamic calls may lack a literal reference, while a namespace assertion
+may contain an API name without calling it. Use the reviewed operation rows and
+actual assertions to establish scope. The guard checks inventory retention,
+named-case existence, shared-runner or unit-runner registration, API references
+and target names. It cannot establish semantic coverage or replace review.
+
+Missing APIs and documented engine/host boundaries remain separate from test
+gaps. A passing finite scenario does not certify all options, states or the entire
+module; retain the whole-module acceptance gate in `CONTRIBUTING.md`.

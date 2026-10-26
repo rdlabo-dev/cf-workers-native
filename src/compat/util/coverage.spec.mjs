@@ -1,0 +1,108 @@
+export const utilCoverageCases = {
+  utilPredicateCoverage: function ({ util, types }) {
+    const values = {
+      undefined: undefined,
+      null: null,
+      boolean: true,
+      number: 3,
+      string: "s",
+      symbol: Symbol("s"),
+      bigint: 3n,
+      array: [],
+      object: {},
+      fn: () => {},
+      date: new Date(0),
+      regexp: /x/,
+      error: new Error("x"),
+      map: new Map(),
+      set: new Set(),
+      weakMap: new WeakMap(),
+      weakSet: new WeakSet(),
+      arrayBuffer: new ArrayBuffer(4),
+      dataView: new DataView(new ArrayBuffer(4)),
+      boxedNumber: Object(3),
+      boxedString: Object("s"),
+      boxedBoolean: Object(true),
+      boxedBigint: Object(3n),
+      boxedSymbol: Object(Symbol("s")),
+    };
+    for (const name of [
+      "Uint8Array",
+      "Uint8ClampedArray",
+      "Uint16Array",
+      "Uint32Array",
+      "Int8Array",
+      "Int16Array",
+      "Int32Array",
+      "Float32Array",
+      "Float64Array",
+      "BigInt64Array",
+      "BigUint64Array",
+    ])
+      values[name] = new globalThis[name](2);
+    const out = {};
+    for (const [api, names] of [
+      [
+        util,
+        [
+          "isArray",
+          "isBoolean",
+          "isBuffer",
+          "isFunction",
+          "isNull",
+          "isNumber",
+          "isRegExp",
+          "isString",
+          "isSymbol",
+          "isUndefined",
+          "isPrimitive",
+          "isObject",
+          "isNullOrUndefined",
+          "isError",
+        ],
+      ],
+      [
+        types,
+        [
+          "isDate",
+          "isRegExp",
+          "isNativeError",
+          "isTypedArray",
+          "isArrayBufferView",
+          "isUint8Array",
+          "isUint8ClampedArray",
+          "isUint16Array",
+          "isUint32Array",
+          "isInt8Array",
+          "isInt16Array",
+          "isInt32Array",
+          "isFloat32Array",
+          "isFloat64Array",
+          "isBigInt64Array",
+          "isBigUint64Array",
+          "isMap",
+          "isSet",
+          "isWeakMap",
+          "isWeakSet",
+          "isArrayBuffer",
+          "isDataView",
+          "isNumberObject",
+          "isStringObject",
+          "isBooleanObject",
+          "isBigIntObject",
+          "isSymbolObject",
+          "isBoxedPrimitive",
+          "isAnyArrayBuffer",
+        ],
+      ],
+    ])
+      for (const name of names)
+        out[(api === util ? "util/" : "types/") + name] = Object.fromEntries(
+          Object.entries(values).map(([kind, value]) => [
+            kind,
+            api[name](value),
+          ]),
+        );
+    return out;
+  },
+};
