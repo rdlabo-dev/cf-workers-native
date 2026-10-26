@@ -104,7 +104,7 @@ const assessments = [
     ],
     priority: 2,
     category: "implementation-and-native-transport",
-    next: "Direct TLS and same-connection STARTTLS exchange/hostname rejection are tested in page and Dedicated Worker on both OSes. TLS 1.2/1.3 and repeated write-half-close are covered on both OSes; custom Duplex wrapping remains unsupported. Native WS/WSS, compression/context takeover, pair and attachment contracts are included, with only the documented engine-private attachment-size boundary. Audit remaining class/prototype/state/event contracts; these scenarios do not certify the whole TLS/server/WebSocket API.",
+    next: "Direct TLS and same-connection STARTTLS exchange/hostname rejection are tested in page and Dedicated Worker on both OSes. TLS 1.2/1.3 and repeated write-half-close are covered on both OSes. Custom Duplex wrapping follows the Workers byte-stream behavior and does not itself encrypt bytes. Native WS/WSS, compression/context takeover, pair and attachment contracts are included, with only the documented engine-private attachment-size boundary. Audit remaining class/prototype/state/event contracts; these scenarios do not certify the whole TLS/server/WebSocket API.",
     evidence: ["surface-gaps.json", "../../../../docs/compatibility.md"],
   },
   {

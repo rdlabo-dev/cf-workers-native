@@ -27,6 +27,13 @@ and [verification scope](native-embedding.md#verification) for host-specific evi
 Whole-Node compatibility is incomplete. Importing a module successfully does not
 establish equivalent methods, validation, state, scheduling or engine behavior.
 
+The current PR #72 candidate is being validated for one release under an
+[explicit scoped exception](../CONTRIBUTING.md#pr-72-scoped-release-exception).
+Whole-module status remains **In progress**, including modules whose existing
+contracts pass. Release validation covers the implemented scenarios; it does not
+certify untested operations. Missing APIs, known differences and unverified
+operation coverage below remain outstanding after release.
+
 | Area                                              | Behavior and limitations                                                                                                                                                                                                                                                                        |
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | path, querystring, string_decoder, buffer, timers | Implement the pinned Workers profile. Workers stubs remain stubs; for example, matchesGlob reproduces the pinned rejection.                                                                                                                                                                     |
