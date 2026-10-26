@@ -63,6 +63,29 @@ See their READMEs for commands, prerequisites and evidence limits.
 
 ## Capacitor native checks
 
+### Remote-first release coverage
+
+The product gate is defined in [CONTRIBUTING](../../CONTRIBUTING.md#remote-first-application-release-gate).
+Use these existing suites together; no single smoke test certifies an application
+or whole-module Node compatibility. Commands below run from `demo/` unless noted.
+
+| Release contract                                                                             | Verification entry                                                                                      |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Server-only dependency exclusion; pre-execution selection; failed mutations are not replayed | Root `npm test` (`execution-policy`, `remote-worker`, binding/build suites)                             |
+| Public package imports, types and independent Vite/esbuild consumer                          | Root `npm run typecheck` and `npm run test:package`                                                     |
+| Hono / Workers Express builds and page behavior                                              | `npm run test:browser`, `npm run test:build-tools`; packaged native rendering below on both platforms   |
+| Void React Pages hydration, navigation and D1 action                                         | `npm run test:void`, `npm run test:void:routes`; [Void native fixture](void/native.test.mjs)            |
+| OpenNext public assets, remote protocol/session/form behavior and lifecycle                  | `npm run test:opennext`, `npm run test:opennext:split`; [OpenNext fixture](upstream/opennext/README.md) |
+| D1/R2 backed application operations                                                          | [0bin](upstream/0bin/README.md), [FlareDrive](upstream/flaredrive/README.md), and binding suites        |
+| Native cookies, redirects, streaming, cancellation and restart                               | Packaged native rendering and native networking procedures below                                        |
+| Standalone iOS / Android installation and lifecycle                                          | Native embedding workflow and independent consumers above                                               |
+
+Record exact source/package revisions and platform results in generated artifacts
+and the PR. Browser results do not replace native transport results. Local workerd
+database assertions do not certify every deployed Cloudflare service. Keep upstream
+authentication restrictions, passkeys, arbitrary version skew and unsupported
+upgrade transport outside the supported profile until their own acceptance passes.
+
 Prepare a test app in Capacitor's ordinary `dist/` directory, then sync and run:
 
 ```sh

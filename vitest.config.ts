@@ -57,6 +57,7 @@ export default defineConfig({
       "src/shared/globals/web.spec.ts",
       "src/browser/abort/installation.spec.ts",
       "src/compat/buffer/installation.spec.ts",
+      "src/compat/console/forwarding.spec.ts",
       "src/compat/timers/installation.spec.ts",
       "src/compat/url/installation.spec.ts",
       "src/compat/url/interop.spec.ts",

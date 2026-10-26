@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium, webkit } from "@playwright/test";
@@ -104,7 +105,20 @@ const output = new URL(
 await mkdir(output, { recursive: true });
 await writeFile(
   new URL("expansion-contracts-workerd.json", output),
-  JSON.stringify({ profile, results: baseline }, null, 2) + "\n",
+  JSON.stringify(
+    {
+      profile,
+      sources: Object.fromEntries(
+        Object.entries(eventCases).map(([name, fn]) => [
+          name,
+          createHash("sha256").update(fn.toString()).digest("hex"),
+        ]),
+      ),
+      results: baseline,
+    },
+    null,
+    2,
+  ) + "\n",
 );
 const compiled = await build({
   absWorkingDir: root,

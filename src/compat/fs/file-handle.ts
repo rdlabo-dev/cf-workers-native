@@ -276,11 +276,18 @@ export class FileHandle extends EventEmitter {
     const handle = this;
     const read = this.read.bind(this);
     let controller: ReadableByteStreamController,
-      ended = false;
+      ended = false,
+      failed = false,
+      closingAtEof = false;
     const finish = () => {
+      if (failed) throw new TypeError("This ReadableStream is closed.");
+      if (ended && !closingAtEof)
+        throw new TypeError("This ReadableStream is closed.");
       if (!ended) {
         ended = true;
+        const request = controller.byobRequest;
         controller.close();
+        request?.respond(0);
       }
     };
     const stream = new ReadableStream({
@@ -292,16 +299,26 @@ export class FileHandle extends EventEmitter {
       async pull(c) {
         const request = c.byobRequest!,
           view = request.view!;
-        const { bytesRead } = await read(
-          view,
-          view.byteOffset,
-          view.byteLength,
-        );
+        let bytesRead: number;
+        try {
+          ({ bytesRead } = await read(view, view.byteOffset, view.byteLength));
+        } catch (error) {
+          failed = true;
+          throw error;
+        }
+        if (ended) return;
         if (bytesRead === 0) {
           finish();
-          if (autoClose) await handle.close();
+          if (autoClose) {
+            closingAtEof = true;
+            try {
+              await handle.close();
+            } finally {
+              closingAtEof = false;
+            }
+          }
         }
-        request.respond(bytesRead);
+        if (!ended) request.respond(bytesRead);
       },
       async cancel() {
         ended = true;

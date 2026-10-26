@@ -6,14 +6,49 @@ Run `npm run format` from the repository root before submitting changes. `npm ru
 
 ## Complete compatibility units only
 
-New compatibility implementations must be completed before merge or release unless an explicitly authorized release exception applies. A useful subset, a working framework demo, or passing tests for selected methods does not establish whole-module completion. Release exceptions cover [the current PR #72 candidate](#pr-72-scoped-release-exception) and existing implementations in [0.1.0 Preview and its explicitly authorized 0.1.1, 0.1.2, 0.1.3 and 0.1.4 follow-ups](#010-preview-exception).
+Product release readiness follows the remote-first application gate below.
+Whole-module completion remains a separate claim: a working application or selected
+method tests must never promote an incomplete module to **Complete**.
 
-For Node.js compatibility, the acceptance unit is a module, including its Workers
+For Node.js compatibility, the completion unit is a module, including its Workers
 exports, subpaths and observable behavior. For a binding or Web API, define the
-named API unit before implementation. Do not redefine the unit around the methods
-that happen to work. Large units may be developed in several commits or draft PRs,
-but incomplete implementation PRs must not be merged into main unless covered by
-an explicitly authorized release exception.
+named API unit before implementation. Do not redefine it around methods that work.
+
+## Remote-first application release gate
+
+The primary supported workflow builds an existing Workers application into a
+mobile app while executing server requests on its deployed Worker. The maintainer
+has authorized this release policy starting with 0.1.7. Existing incomplete local
+compatibility implementations may ship with their **In progress**, **Unverified**
+or **Not implemented** status retained. Full Node parity is not a product release
+prerequisite. Historical version exceptions below describe earlier releases.
+
+A release requires all of the following:
+
+- The declared framework profiles build through public Vite/esbuild tooling and
+  an independently installed npm tarball. Remote-only server dependencies and
+  secrets stay outside client bundles and source maps; the Cloudflare build is
+  preserved.
+- Remote selection happens before application execution. Unknown or unsupported
+  server graphs may remain wholly remote. Never retry a failed local mutation on
+  the server, or silently queue/retry a remote mutation after a transport failure.
+- Required application scenarios pass on iOS simulator and Android emulator,
+  covering the applicable navigation/forms, remote data assertions, sessions,
+  streaming, cancellation and lifecycle contracts. Physical devices are not a
+  release prerequisite. State the tested versions and host-specific boundaries.
+- The candidate passes existing regression, public types/imports, package,
+  native embedding and required CI checks. Known failures in required scenarios
+  must be fixed, not renamed as unfinished work. Evidence must match the candidate.
+- Manager and independent acceptance reviews have no required changes. Record
+  evidence in the PR/generated artifacts. Documentation provides matching npm,
+  SwiftPM and Maven dependencies, reproduction commands and known exclusions.
+- Client initialization failures cannot be repaired by server dispatch. Keep
+  Better Auth origin restrictions, WebAuthn and unsupported HTTP upgrades visible;
+  no universal authentication, arbitrary framework-version or offline guarantee.
+
+Use [build setup](docs/build-setup.md), [framework limits](docs/compatibility.md)
+and [native dependency setup](docs/native-embedding.md#dependency-setup) to define
+supported profiles. API completion work continues independently of releases.
 
 The target is Cloudflare Workers, not every API available in a Node.js process.
 Pin the workerd version, compatibility date and flags. An operation unsupported
@@ -35,7 +70,7 @@ CORS, headers, cookies, redirects, streaming and cancellation must not be exclud
 
 ## Acceptance gate
 
-A compatibility implementation is ready to merge only when all of these are true:
+A compatibility unit may be marked **Complete** only when all of these are true:
 
 - The baseline's exports, subpaths, signatures and relevant prototype methods
   have been inventoried, with no unresolved coverage decisions.
@@ -64,11 +99,10 @@ Only then may the inventory say **Complete**. Until then, use **In progress**,
 
 ## Work in progress
 
-Except for an explicitly authorized release exception, keep incomplete compatibility work on a development branch or draft PR. Do not
-activate it in a merged build alias, public export or default runtime path, and do
-not ship it behind an experimental flag as a substitute for finishing it. Design
-notes and reproducible experiments can be reviewed independently without adding
-unfinished production behavior.
+Keep unfinished new API work on a development branch or draft PR until its
+claimed scenarios satisfy the release gate. Existing incomplete compatibility may
+ship under the remote-first policy, with its limitations retained. An experimental
+flag or successful namespace import does not establish behavioral completion.
 
 ### PR #72 scoped release exception
 

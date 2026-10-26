@@ -43,6 +43,22 @@ const reads = new Set([
   "existsSync",
 ]);
 const api: any = { ...temporary };
+// Stats values are produced by the filesystem; Workers forbids public construction.
+api.Stats = new Proxy(api.Stats, {
+  construct() {
+    throw new TypeError("Illegal constructor");
+  },
+  apply() {
+    throw new TypeError(
+      "Class constructor Stats cannot be invoked without 'new'",
+    );
+  },
+});
+Object.defineProperty(api.Stats.prototype, "constructor", {
+  value: api.Stats,
+  configurable: true,
+  writable: true,
+});
 for (const name of Object.keys(api))
   if (typeof api[name] === "function" && /^[a-z]/.test(name))
     api[name] = (...args: any[]) => temporary[name](...args);
