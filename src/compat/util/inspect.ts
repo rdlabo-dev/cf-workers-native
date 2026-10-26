@@ -31,6 +31,7 @@
 /* eslint-disable */
 
 import internal from "./inspect-binding.js";
+import { isKeyObject } from "../crypto/key-state.js";
 
 import { Buffer } from "node:buffer";
 import {
@@ -1456,7 +1457,11 @@ function formatRaw(
         return base;
       }
     } else {
-      if (keys.length === 0 && protoProps === undefined) {
+      // Workers keeps a key handle as an own symbol; this adapter keeps it in
+      // WeakMap state. Preserve depth truncation even though our own keys are empty.
+      const truncateKey =
+        isKeyObject(value) && ctx.depth !== null && recurseTimes > ctx.depth;
+      if (keys.length === 0 && protoProps === undefined && !truncateKey) {
         return `${getCtxStyle(value, constructor, tag)}{}`;
       }
       braces[0] = `${getCtxStyle(value, constructor, tag)}{`;

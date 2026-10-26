@@ -1,5 +1,6 @@
-// Optional compatibility modules register request-local state here. Keeping
-// this leaf dependency-free preserves the raw browser ESM entry point.
+// Optional modules register request-local state here. The active request marker
+// exists before registration so a first dynamic import sees its current request.
+import { runWithActiveRequest } from "./request-context.js";
 type Scope = <T>(callback: () => T) => T;
 const scopes = new Set<Scope>();
 export function registerRequestScope(scope: Scope): void {
@@ -11,5 +12,5 @@ export function runWithRequestScope<T>(callback: () => T): T {
     index === entries.length
       ? callback()
       : entries[index](() => run(index + 1));
-  return run(0);
+  return runWithActiveRequest(() => run(0));
 }

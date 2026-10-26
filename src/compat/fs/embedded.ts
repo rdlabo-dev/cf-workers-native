@@ -4,6 +4,7 @@
 // surface. Mutating calls and real device filesystem access are not
 // provided.
 
+import { Buffer } from "node:buffer";
 const encoder = new TextEncoder();
 const files = new Map<string, Uint8Array>();
 
@@ -136,7 +137,7 @@ export class Stats {
     return this.#mtime.getTime();
   }
   get mode() {
-    return this.#directory ? 0o40755 : 0o100644;
+    return this.#directory ? 0o40444 : 0o100444;
   }
   get dev() {
     return 0;
@@ -174,6 +175,7 @@ function statFor(path: string, syscall: string): Stats {
 
 function toPath(input: unknown): string {
   if (input instanceof URL) return normalize(input.href);
+  if (Buffer.isBuffer(input)) return normalize(input.toString());
   if (typeof input !== "string" && !(input instanceof String))
     throw new TypeError("path must be a string or URL");
   return normalize(String(input));
@@ -193,7 +195,9 @@ export function readFileSync(path: unknown, options?: unknown): unknown {
     typeof options === "string"
       ? options
       : (options as { encoding?: string } | undefined)?.encoding;
-  return encoding ? decode(data, encoding) : new Uint8Array(data);
+  return encoding
+    ? Buffer.from(data).toString(encoding as BufferEncoding)
+    : Buffer.from(data);
 }
 
 export function readFile(

@@ -3,7 +3,7 @@ type API = Record<string, (...args: number[]) => number> & {
   memory: WebAssembly.Memory;
 };
 let api: API | undefined;
-function library(): API {
+export function library(): API {
   if (!api) {
     const module = new WebAssembly.Module(binary as BufferSource);
     api = new WebAssembly.Instance(module, {
@@ -21,7 +21,7 @@ function library(): API {
   }
   return api;
 }
-function string(api: API, pointer: number) {
+export function string(api: API, pointer: number) {
   const bytes = new Uint8Array(api.memory.buffer);
   let end = pointer;
   while (bytes[end]) end++;
@@ -35,6 +35,7 @@ export class NativeCodec {
   private output: number;
   private closed = false;
   finished = false;
+  private frameInProgress = false;
   consumed = 0;
   constructor(
     readonly kind: Kind,
@@ -60,12 +61,20 @@ export class NativeCodec {
           Number(value),
         );
         if (kind === "brotli" ? !result : api.z_is_error(result))
-          throw Object.assign(new Error("Initialization failed"), {
-            code: "ERR_ZLIB_INITIALIZATION_FAILED",
-          });
+          throw new Error(
+            kind === "brotli"
+              ? "Setting parameter failed"
+              : "Setting parameter failed: " + string(api, api.z_error(result)),
+          );
       }
       if (pledged !== undefined && kind === "zstd" && encode)
-        this.zcheck(api.z_size(this.ctx, pledged));
+        this.zcheck(
+          api.z_size64(
+            this.ctx,
+            pledged >>> 0,
+            Math.floor(pledged / 4294967296) >>> 0,
+          ),
+        );
     } catch (error) {
       this.close();
       throw error;
@@ -126,12 +135,11 @@ export class NativeCodec {
             new Uint8Array(api.memory.buffer, this.output, produced).slice(),
           );
         this.finished = this.kind === "brotli" ? result === 1 : result === 0;
-        if (
-          !this.encode &&
-          this.finished &&
-          (this.kind === "brotli" || offset === input.length)
-        )
-          break;
+        if (this.kind === "zstd" && !this.encode && input.length > 0)
+          this.frameInProgress = result > 0;
+        // Workers' fast helper stops after the first completed frame. The
+        // stream binding separately permits concatenated frames.
+        if (!this.encode && this.finished) break;
         if (this.encode && operation !== 0 && this.finished) break;
         if (offset === input.length && produced < this.chunkSize) {
           if (this.encode && operation === 2 && !this.finished) {
@@ -139,8 +147,17 @@ export class NativeCodec {
               throw new Error("Codec made no progress");
             continue;
           }
-          if (!this.encode && operation === 2 && !this.finished)
-            throw new Error("Unexpected end of file");
+          if (
+            !this.encode &&
+            operation === 2 &&
+            !this.finished &&
+            (this.kind === "brotli" || this.frameInProgress)
+          )
+            throw new Error(
+              this.kind === "zstd"
+                ? "unexpected end of file"
+                : "Unexpected end of file",
+            );
           break;
         }
         if (!consumed && !produced) throw new Error("Codec made no progress");

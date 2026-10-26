@@ -23,7 +23,7 @@ const assessments = [
     modules: ["crypto", "zlib"],
     priority: 2,
     category: "implementation-gap",
-    next: "Inventory algorithms, key/codec classes, synchronous and streaming behavior. Evaluate JS/Wasm implementations against all pinned operations; random/hash/HKDF/scrypt, owned secret/asymmetric keys, RSA/EC/Ed25519 signatures, prime generation/checking X509Certificate parsing/fields/name checks/signature checks and Brotli/Zstd profiles now supplement dependency polyfills. Pinned Workers X509 key-check restrictions are documented. Additional key-generation options, remaining algorithms and complete codec contracts remain open. No technical-impossibility claim has been established.",
+    next: "Inventory algorithms, key/codec classes, synchronous and streaming behavior. Evaluate JS/Wasm implementations against all pinned operations; random/Hash/HMAC/PBKDF2/HKDF/scrypt, owned secret/asymmetric keys, RSA/EC/Ed25519 signatures, prime generation/checking X509Certificate parsing/fields/name checks/signature checks and cipher metadata lookup now supplement dependency polyfills. Gzip/deflate now use zlib Wasm; all codec streams use the pinned Workers lifecycle, with option, reset, close, callback and output-limit contracts. Pinned Workers X509 key-check restrictions are documented. The pinned 17 digest names, copying, finalization and KDF length limits have shared contracts; Float16Array input-brand coverage depends on engine availability recorded in native measurements. Additional key-generation options, remaining algorithms and complete codec contracts remain open. No technical-impossibility claim has been established.",
     evidence: [
       "surface-gaps.json",
       "expansion-contracts.probe.mjs",
@@ -35,7 +35,7 @@ const assessments = [
     modules: ["fs", "fs/promises"],
     priority: 2,
     category: "implementation-gap",
-    next: "Compare the Workers virtual filesystem, descriptors, FileHandle, writes, permissions and watch behavior. Request-local memory-backed /tmp now supports writes, descriptors and FileHandle; permission no-ops, statfs and embedded-file copying are tested; compare remaining cross-volume operations, descriptors and stream semantics.",
+    next: "Compare the Workers virtual filesystem, descriptors, FileHandle, writes, permissions and watch behavior. Request-local memory-backed /tmp now supports writes, descriptors and FileHandle; permission no-ops, statfs and embedded-file copying are tested; embedded descriptors/FileHandles, links, immutable copies, cp options, millisecond timestamps and readonly metadata are also compared. Devices, directory iteration, glob, stream fd/custom-fs options, byte streams, URL normalization, FD reuse and request-local cwd now have upstream and comparative coverage. Complete the remaining per-operation/option inventory and all-platform acceptance; these cases do not certify the whole module.",
     evidence: [
       "../../../../src/compat/fs/index.ts",
       "../../../../src/compat/fs/promises/index.ts",
@@ -45,7 +45,7 @@ const assessments = [
     modules: ["process", "console"],
     priority: 2,
     category: "implementation-and-host-integration",
-    next: "Classify each export as functional or a pinned Workers stub; verify scheduling, streams, events and host-specific introspection independently. Do not substitute standalone Node behavior.",
+    next: "Configuration, environment-file loading and standard stream input now have shared behavioral contracts. abort, reallyExit and getBuiltinModule remain unimplemented; termination and builtin lookup require host integration. Audit the remaining process/console operations independently; selected cases do not certify the modules.",
     evidence: ["surface-gaps.json"],
   },
   {
@@ -104,7 +104,7 @@ const assessments = [
     ],
     priority: 2,
     category: "implementation-and-native-transport",
-    next: "Direct TLS and same-connection STARTTLS exchange/hostname rejection are tested in page and Dedicated Worker on both OSes. TLS 1.2/1.3 and repeated write-half-close are covered on both OSes; custom Duplex wrapping remains unsupported. Audit remaining class/prototype/state/event contracts; these scenarios do not certify the whole TLS/server API.",
+    next: "Direct TLS and same-connection STARTTLS exchange/hostname rejection are tested in page and Dedicated Worker on both OSes. TLS 1.2/1.3 and repeated write-half-close are covered on both OSes. Custom Duplex wrapping follows the Workers byte-stream behavior and does not itself encrypt bytes. Native WS/WSS, compression/context takeover, pair and attachment contracts are included, with only the documented engine-private attachment-size boundary. Audit remaining class/prototype/state/event contracts; these scenarios do not certify the whole TLS/server/WebSocket API.",
     evidence: ["surface-gaps.json", "../../../../docs/compatibility.md"],
   },
   {

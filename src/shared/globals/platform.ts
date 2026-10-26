@@ -17,6 +17,7 @@ export const platform = {
   Request: globalThis.Request,
   Response: globalThis.Response,
   Headers: globalThis.Headers,
+  WebSocket: globalThis.WebSocket,
   fetch: globalThis.fetch.bind(globalThis),
   structuredClone: globalThis.structuredClone.bind(globalThis),
 };

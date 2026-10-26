@@ -5,6 +5,7 @@ export interface KeyState {
   bytes?: Uint8Array;
   asymmetric?: NativeKey;
   native?: CryptoKey;
+  nativeAlgorithm?: KeyAlgorithm;
 }
 export const keyStates = new WeakMap<object, KeyState>();
 export function isKeyObject(value: unknown): boolean {

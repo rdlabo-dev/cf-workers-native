@@ -111,6 +111,10 @@ function compatibilityPlugins(
         let specifier: string | undefined;
         if (target === `${root}/compat/stream-web/index.js`)
           specifier = "node:stream/web";
+        else if (target === `${root}/browser/response/index.js`)
+          specifier = "cf-workers-native:response";
+        else if (target === `${root}/browser/headers/index.js`)
+          specifier = "cf-workers-native:headers";
         else if (
           owner === `${root}/browser/body/stream-body.js` ||
           owner === `${root}/shared/globals/web.js`

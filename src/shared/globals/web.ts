@@ -5,6 +5,8 @@ import { Request } from "../../browser/request/index.js";
 import { Response } from "../../browser/response/index.js";
 import { Headers } from "../../browser/headers/index.js";
 import { structuredClone } from "../../browser/structured-clone/index.js";
+import { WebSocket, WebSocketPair } from "../../browser/websocket/endpoint.js";
+import { CloseEvent } from "../../browser/websocket/close-event.js";
 
 import { Blob, File } from "../../compat/buffer/blob.js";
 
@@ -24,6 +26,9 @@ const values = {
   Response,
   Headers,
   structuredClone,
+  WebSocket,
+  WebSocketPair,
+  CloseEvent,
   Blob,
   File,
   Performance,

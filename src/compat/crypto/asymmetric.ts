@@ -1,3 +1,10 @@
+import { signatureDigest } from "./digests.js";
+import { curveName, generateDh, deriveDh, decodeKey } from "./native-cipher.js";
+import { validateExportOptions } from "./key-options.js";
+import {
+  ERR_INCOMPATIBLE_OPTION_PAIR,
+  ERR_MISSING_OPTION,
+} from "./key-errors.js";
 import { Buffer } from "node:buffer";
 import { NativeKey, nativeTimingEqual } from "./native-crypto.js";
 import { importJwk } from "./key-formats.js";
@@ -8,13 +15,14 @@ import {
   PublicKeyObject,
 } from "./keys.js";
 import { keyStates } from "./key-state.js";
-import { bytes, validateInteger } from "./validation.js";
+import { bytes, validateInteger, isAnyBuffer } from "./validation.js";
 import {
   validateObject,
   validateString,
   validateOneOf,
   validateFunction,
   validateUint32,
+  validateInt32,
 } from "../net/validators.js";
 import { ERR_INVALID_ARG_TYPE, ERR_INVALID_ARG_VALUE } from "../net/errors.js";
 function handle(key: KeyObject): NativeKey {
@@ -36,12 +44,16 @@ function input(value: any, privateKey: boolean): NativeKey {
       value,
     );
   const options =
-    typeof value === "string" ||
-    value instanceof ArrayBuffer ||
-    ArrayBuffer.isView(value)
+    typeof value === "string" || isAnyBuffer(value) || ArrayBuffer.isView(value)
       ? { key: value }
       : value;
-  const data = options.key;
+  const {
+    key: data,
+    encoding = "utf8",
+    format = "pem",
+    type,
+    passphrase,
+  } = options;
   if (
     data == null ||
     data instanceof KeyObject ||
@@ -54,44 +66,40 @@ function input(value: any, privateKey: boolean): NativeKey {
     );
   if (
     typeof data === "object" &&
-    !(data instanceof ArrayBuffer) &&
+    !isAnyBuffer(data) &&
     !ArrayBuffer.isView(data)
   )
     return importJwk(data, privateKey);
-  const format = options.format ?? "pem";
+  if (
+    typeof data !== "string" &&
+    !isAnyBuffer(data) &&
+    !ArrayBuffer.isView(data)
+  )
+    throw new ERR_INVALID_ARG_TYPE(
+      "key",
+      ["ArrayBuffer", "Buffer", "TypedArray", "DataView", "string", "object"],
+      value,
+    );
   validateOneOf(format, "format", ["pem", "der"]);
-  if (options.type !== undefined)
+  if (type !== undefined)
     validateOneOf(
-      options.type,
+      type,
       "type",
       privateKey ? ["pkcs1", "pkcs8", "sec1"] : ["pkcs1", "spki"],
     );
   const raw =
-    typeof data === "string"
-      ? Buffer.from(data, options.encoding ?? "utf8")
-      : bytes(data, "key");
+    typeof data === "string" ? Buffer.from(data, encoding) : bytes(data, "key");
   const password =
-    options.passphrase === undefined
+    passphrase == null
       ? undefined
-      : typeof options.passphrase === "string"
-        ? Buffer.from(options.passphrase, options.encoding ?? "utf8")
-        : bytes(options.passphrase, "passphrase");
-  if (privateKey) return NativeKey.parse(raw, format === "pem", true, password);
+      : typeof passphrase === "string"
+        ? Buffer.from(passphrase, encoding)
+        : bytes(passphrase, "passphrase");
+  const decoded = decodeKey(raw, format === "pem", privateKey, type, password);
   try {
-    return NativeKey.parse(raw, format === "pem", false, password);
-  } catch (error) {
-    // createPublicKey also accepts a serialized private key, deriving public material.
-    let key: NativeKey;
-    try {
-      key = NativeKey.parse(raw, format === "pem", true, password);
-    } catch {
-      throw error;
-    }
-    try {
-      return NativeKey.parse(key.export(false, false, "spki"), false, false);
-    } finally {
-      key.dispose();
-    }
+    return NativeKey.parse(decoded.data, false, decoded.privateKey);
+  } finally {
+    decoded.data.fill(0);
   }
 }
 export function createPrivateKey(value: unknown): PrivateKeyObject {
@@ -104,11 +112,7 @@ export function createPublicKey(value: any): PublicKeyObject {
     if (value.type !== "private")
       throw new ERR_INVALID_ARG_TYPE("key", "PrivateKeyObject", value);
     return create("public", {
-      asymmetric: NativeKey.parse(
-        handle(value).export(false, false, "spki"),
-        false,
-        false,
-      ),
+      asymmetric: handle(value),
     }) as PublicKeyObject;
   }
   return create("public", {
@@ -118,47 +122,135 @@ export function createPublicKey(value: any): PublicKeyObject {
 export function generateKeyPairSync(type: string, options: any = {}) {
   validateOneOf(type, "type", ["rsa", "ec", "ed25519", "x25519", "dh"]);
   validateObject(options, "options");
+  const {
+    modulusLength,
+    publicExponent = 65537,
+    namedCurve,
+    prime,
+    primeLength,
+    generator,
+    group,
+    groupName,
+    paramEncoding = "named",
+    publicKeyEncoding,
+    privateKeyEncoding,
+  } = options;
+  if (publicKeyEncoding !== undefined)
+    validateExportOptions(
+      publicKeyEncoding,
+      "public",
+      "options.publicKeyEncoding",
+    );
+  if (privateKeyEncoding !== undefined)
+    validateExportOptions(
+      privateKeyEncoding,
+      "private",
+      "options.privateKeyEncoding",
+      type,
+    );
   let key: NativeKey;
   if (type === "rsa") {
-    validateUint32(options.modulusLength, "options.modulusLength");
-    validateUint32(options.publicExponent ?? 65537, "options.publicExponent");
-    key = NativeKey.generate(
-      "RSA",
-      options.modulusLength,
-      undefined,
-      options.publicExponent ?? 65537,
-    );
+    validateUint32(modulusLength, "options.modulusLength");
+    validateUint32(publicExponent, "options.publicExponent");
+    if (modulusLength > 16384)
+      throw new RangeError("RSA modulusLength exceeds maximum (16384)");
+    if (modulusLength < 256) throw new Error("Failed to set modulus length");
+    if (modulusLength < 512 || publicExponent < 3 || publicExponent % 2 === 0)
+      throw new Error("Failed to generate key");
+    try {
+      key = NativeKey.generate(
+        "RSA",
+        modulusLength & ~127,
+        undefined,
+        publicExponent,
+      );
+    } catch {
+      throw new Error("Failed to generate key");
+    }
   } else if (type === "ec") {
-    validateString(options.namedCurve, "options.namedCurve");
-    validateOneOf(options.paramEncoding ?? "named", "options.paramEncoding", [
+    validateString(namedCurve, "options.namedCurve");
+    validateOneOf(paramEncoding, "options.paramEncoding", [
       "named",
       "explicit",
     ]);
-    key = NativeKey.generate("EC", 0, options.namedCurve);
+    key = NativeKey.generate("EC", 0, curveName(namedCurve));
+    key.ecEncoding = paramEncoding === "named" ? 1 : 0;
   } else if (type === "dh") {
-    const groups: Record<string, string> = {
-      modp1: "modp_768",
-      modp2: "modp_1024",
-      modp5: "modp_1536",
-      modp14: "modp_2048",
-      modp15: "modp_3072",
-      modp16: "modp_4096",
-      modp17: "modp_6144",
-      modp18: "modp_8192",
-    };
-    const group = options.group ?? options.groupName;
-    validateString(group, "options.group");
-    key = NativeKey.generate("DH", 0, groups[group] ?? group);
+    if (generator != null) validateInt32(generator, "options.generator", 0);
+    if (group != null || groupName != null) {
+      for (const [name, value] of [
+        ["prime", prime],
+        ["primeLength", primeLength],
+        ["generator", generator],
+      ])
+        if (value != null)
+          throw new ERR_INCOMPATIBLE_OPTION_PAIR("group", name);
+      const selected = group || groupName;
+      validateString(selected, "options.group");
+      const groups: Record<string, string> = Object.assign(
+        Object.create(null),
+        {
+          modp5: "modp_1536",
+          modp14: "modp_2048",
+          modp15: "modp_3072",
+          modp16: "modp_4096",
+          modp17: "modp_6144",
+          modp18: "modp_8192",
+        },
+      );
+      const nativeGroup = groups[selected.toLowerCase()];
+      if (!nativeGroup) throw new Error("Invalid or unsupported group");
+      key = NativeKey.generate("DH", 0, nativeGroup);
+    } else {
+      if (prime != null) {
+        if (primeLength != null)
+          throw new ERR_INCOMPATIBLE_OPTION_PAIR("prime", "primeLength");
+        if (!ArrayBuffer.isView(prime) && !isAnyBuffer(prime))
+          throw new ERR_INVALID_ARG_TYPE(
+            "options.prime",
+            ["Buffer", "TypedArray", "ArrayBuffer"],
+            prime,
+          );
+      } else if (primeLength != null)
+        validateInt32(primeLength, "options.primeLength", 0);
+      else
+        throw new ERR_MISSING_OPTION(
+          "At least one of the group, prime, or primeLength options",
+        );
+      if (prime) {
+        const data = bytes(prime, "options.prime");
+        if (data.byteLength > 1024)
+          throw new RangeError("DH prime exceeds maximum size");
+        const components = generateDh(data, generator ?? 2);
+        try {
+          key = NativeKey.generateDh(data, generator ?? 2, components);
+        } finally {
+          components.fill(0);
+        }
+      } else
+        throw new Error(
+          "Generating DH keys from a prime length is not yet implemented",
+        );
+    }
   } else key = NativeKey.generate(type.toUpperCase());
   const privateKey = create("private", { asymmetric: key }) as PrivateKeyObject;
-  const publicKey = createPublicKey(privateKey);
+  // Workers constructs a separate public-only EC key. Other generated pairs
+  // retain the same key material under their public and private wrappers.
+  const publicKey = create("public", {
+    asymmetric:
+      type === "ec"
+        ? NativeKey.parse(key.export(false, false, "spki"), false, false)
+        : key,
+  }) as PublicKeyObject;
   return {
-    publicKey: options.publicKeyEncoding
-      ? publicKey.export(options.publicKeyEncoding)
-      : publicKey,
-    privateKey: options.privateKeyEncoding
-      ? privateKey.export(options.privateKeyEncoding)
-      : privateKey,
+    publicKey:
+      publicKeyEncoding !== undefined
+        ? publicKey.export(publicKeyEncoding)
+        : publicKey,
+    privateKey:
+      privateKeyEncoding !== undefined
+        ? privateKey.export(privateKeyEncoding)
+        : privateKey,
   };
 }
 export function generateKeyPair(
@@ -166,10 +258,6 @@ export function generateKeyPair(
   options: any,
   callback: any,
 ): void {
-  if (typeof options === "function") {
-    callback = options;
-    options = {};
-  }
   validateFunction(callback, "callback");
   let result: ReturnType<typeof generateKeyPairSync> | undefined,
     failure: unknown;
@@ -184,6 +272,11 @@ export function generateKeyPair(
       : callback(null, result!.publicKey, result!.privateKey),
   );
 }
+Object.defineProperty(
+  generateKeyPair,
+  Symbol.for("nodejs.util.promisify.custom.args"),
+  { value: ["publicKey", "privateKey"], enumerable: false },
+);
 function optionsOf(value: any) {
   return value &&
     typeof value === "object" &&
@@ -216,15 +309,19 @@ export function sign(
   const digest = digestName(algorithm),
     raw = bytes(data, "data");
   const execute = () => {
-    const options = optionsOf(key);
+    const options = optionsOf(key),
+      native = handle(operationKey(key, true));
+    if (native.type === "dsa")
+      throw new Error("Signing with DSA keys is not currently supported");
+    const normalized = digest === null ? null : signatureDigest(digest);
+    if (
+      native.type === "x25519" ||
+      (native.type === "ed25519" && normalized !== null) ||
+      (native.type !== "ed25519" && normalized === null)
+    )
+      throw new Error("Failed to initialize signing context");
     return Buffer.from(
-      handle(operationKey(key, true)).sign(
-        digest,
-        raw,
-        options.padding ?? 0,
-        options.saltLength ?? -1,
-        options.dsaEncoding === "ieee-p1363",
-      ),
+      native.sign(normalized, raw, 0, -1, options.dsaEncoding === "ieee-p1363"),
     );
   };
   if (callback === undefined) return execute();
@@ -248,13 +345,23 @@ export function verify(
     raw = bytes(data, "data"),
     sig = bytes(signature, "signature");
   const execute = () => {
-    const options = optionsOf(key);
-    return handle(operationKey(key, false)).verify(
-      digest,
+    const options = optionsOf(key),
+      native = handle(operationKey(key, false));
+    if (native.type === "dsa")
+      throw new Error("Verifying with DSA keys is not currently supported");
+    const normalized = digest === null ? null : signatureDigest(digest);
+    if (
+      native.type === "x25519" ||
+      (native.type === "ed25519" && normalized !== null) ||
+      (native.type !== "ed25519" && normalized === null)
+    )
+      throw new Error("Failed to initialize verification context");
+    return native.verify(
+      normalized,
       raw,
       sig,
-      options.padding ?? 0,
-      options.saltLength ?? -1,
+      0,
+      -1,
       options.dsaEncoding === "ieee-p1363",
     );
   };
@@ -303,6 +410,28 @@ export function diffieHellman(options: any): Buffer {
   // DHPointer::stateless argument. Preserve its observable failure rather than
   // silently substituting standalone Node behavior.
   try {
+    if (publicHandle.type === "dh") {
+      for (const name of ["p", "g"])
+        if (
+          !Buffer.from(publicHandle.parameter(name)).equals(
+            Buffer.from(privateHandle.parameter(name)),
+          )
+        )
+          throw new Error("Failed to derive shared diffie-hellman secret");
+      const secret = publicHandle.parameter("priv");
+      try {
+        return Buffer.from(
+          deriveDh(
+            publicHandle.parameter("p"),
+            publicHandle.parameter("g"),
+            secret,
+            privateHandle.parameter("pub"),
+          ),
+        );
+      } finally {
+        secret.fill(0);
+      }
+    }
     return Buffer.from(publicHandle.derive(privateHandle));
   } catch {
     throw new Error("Failed to derive shared diffie-hellman secret");

@@ -10,15 +10,60 @@ const output = new URL("../../../artifacts/node-inventory/", import.meta.url);
 await mkdir(output, { recursive: true });
 await mkdir(join(root, "artifacts/npm"), { recursive: true });
 const packed = await mkdtemp(join(root, "artifacts/npm/events-"));
-execFileSync("npm", ["pack", "--pack-destination", packed], {
-  cwd: root,
-  stdio: "inherit",
-});
+const version = process.env.CONSUMER_VERSION;
+assert.ok(
+  !version || /^\d+\.\d+\.\d+$/.test(version),
+  "CONSUMER_VERSION must be an exact release version",
+);
+const registry = "https://registry.npmjs.org";
+const published = version
+  ? JSON.parse(
+      execFileSync(
+        "npm",
+        [
+          "view",
+          `cf-workers-native@${version}`,
+          "--json",
+          `--registry=${registry}`,
+          "--prefer-online",
+        ],
+        { encoding: "utf8" },
+      ),
+    )
+  : undefined;
+if (published) assert.equal(published.version, version);
+execFileSync(
+  "npm",
+  [
+    "pack",
+    ...(version
+      ? [
+          `cf-workers-native@${version}`,
+          "--ignore-scripts",
+          `--registry=${registry}`,
+        ]
+      : []),
+    "--pack-destination",
+    packed,
+  ],
+  {
+    cwd: root,
+    stdio: "inherit",
+  },
+);
 const archives = (await readdir(packed)).filter((name) =>
   name.endsWith(".tgz"),
 );
 assert.equal(archives.length, 1);
 const tarball = join(packed, archives[0]);
+if (published)
+  assert.equal(
+    published.dist.integrity,
+    "sha512-" +
+      createHash("sha512")
+        .update(await readFile(tarball))
+        .digest("base64"),
+  );
 const tarballSha256 = createHash("sha256")
   .update(await readFile(tarball))
   .digest("hex");
@@ -63,6 +108,22 @@ execFileSync("npm", ["install", "--no-audit", "--no-fund"], {
 });
 await writeFile(
   new URL("events-consumer.json", output),
-  JSON.stringify({ consumer, tarball, tarballSha256 }, null, 2) + "\n",
+  JSON.stringify(
+    {
+      consumer,
+      tarball,
+      tarballSha256,
+      ...(published
+        ? {
+            source: "npm",
+            version,
+            registry,
+            integrity: published.dist.integrity,
+          }
+        : { source: "checkout" }),
+    },
+    null,
+    2,
+  ) + "\n",
 );
 console.log(`Prepared independent events consumer: ${consumer}`);

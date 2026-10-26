@@ -1,0 +1,26 @@
+{
+  "revisions": {
+    "emsdk": "e4fe26ef59168ff44f4c23c466e497bf60b3411e",
+    "boringssl": "427ec40cc8edc545253289232e885708c409e5ea"
+  },
+  "toolVersions": {
+    "cmake": "4.2.0",
+    "ninja": "1.13.0",
+    "emcc": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 4.0.20 (6913738ec5371a88c4af5a80db0ab42bad3de681)"
+  },
+  "definitions": "-DOPENSSL_NO_THREADS_CORRUPT_MEMORY_AND_LEAK_SECRETS_IF_THREADED -DOPENSSL_NO_FILESYSTEM -DOPENSSL_NO_POSIX_IO -DOPENSSL_NO_SOCK",
+  "flags": [
+    "-O3",
+    "-sSTANDALONE_WASM=1",
+    "-sALLOW_MEMORY_GROWTH=1",
+    "-sFILESYSTEM=0",
+    "-sASSERTIONS=0",
+    "-sMALLOC=emmalloc",
+    "-sABORTING_MALLOC=0",
+    "--no-entry",
+    "-sEXPORTED_FUNCTIONS=[\"_malloc\",\"_free\"]"
+  ],
+  "libraries": ["libdecrepit.a", "libcrypto.a"],
+  "bindingSha256": "336a6d833fe3036bb32eef7eaa7f89422b73f3957aa36b44aab41d26a29f5f4d",
+  "sha256": "689e24ca556618e78adc25715ce367d55eaa0f2cabc54cb7558b96a15e5c583a"
+}

@@ -1,42 +1,45 @@
+export type {
+  CodecInput,
+  CodecOptions,
+  ZlibOptions,
+  BrotliOptions,
+  ZstdOptions,
+  CodecInfo,
+  CodecCallback,
+} from "./public-types.js";
+import type { CodecInput } from "./public-types.js";
+import {
+  viewBytes,
+  isAnyBuffer,
+  bufferBytes,
+} from "../../shared/buffer-source.js";
 import { Buffer } from "node:buffer";
-// @ts-expect-error browserify-zlib has no declarations
-import original from "browserify-zlib/lib/index.js";
-import { validateInteger } from "../crypto/validation.js";
-import { ERR_INVALID_ARG_TYPE } from "../net/errors.js";
+import { validateUint32 } from "../net/validators.js";
 import * as compression from "./compression.js";
 export * from "./compression.js";
-export const {
-  Zlib,
-  codes,
-  Deflate,
-  Inflate,
-  Gzip,
-  Gunzip,
-  DeflateRaw,
-  InflateRaw,
-  Unzip,
-  createDeflate,
-  createInflate,
-  createDeflateRaw,
-  createInflateRaw,
-  createGzip,
-  createGunzip,
-  createUnzip,
-  deflate,
-  deflateSync,
-  gzip,
-  gzipSync,
-  deflateRaw,
-  deflateRawSync,
-  unzip,
-  unzipSync,
-  inflate,
-  inflateSync,
-  gunzip,
-  gunzipSync,
-  inflateRaw,
-  inflateRawSync,
-} = original;
+import * as classic from "./classic.js";
+export * from "./classic.js";
+export const codes = Object.freeze(
+  Object.fromEntries(
+    [
+      "Z_OK",
+      "Z_STREAM_END",
+      "Z_NEED_DICT",
+      "Z_ERRNO",
+      "Z_STREAM_ERROR",
+      "Z_DATA_ERROR",
+      "Z_MEM_ERROR",
+      "Z_BUF_ERROR",
+      "Z_VERSION_ERROR",
+    ].flatMap((name) => {
+      const value = pinnedConstants[name as keyof typeof pinnedConstants];
+      return [
+        [name, value],
+        [value, name],
+      ];
+    }),
+  ),
+);
 import * as pinnedConstants from "./constants.js";
 const topLevelConstants = {
   Z_NO_FLUSH: pinnedConstants.Z_NO_FLUSH,
@@ -370,17 +373,14 @@ export const constants = Object.freeze({ ...pinnedConstants });
 
 function data(input: unknown): Uint8Array {
   if (typeof input === "string") return Buffer.from(input);
-  if (ArrayBuffer.isView(input))
-    return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
-  if (input instanceof ArrayBuffer) return new Uint8Array(input);
-  throw new ERR_INVALID_ARG_TYPE(
-    "buffer",
-    ["string", "Buffer", "TypedArray", "DataView", "ArrayBuffer"],
-    input,
+  if (ArrayBuffer.isView(input)) return viewBytes(input);
+  if (isAnyBuffer(input)) return bufferBytes(input);
+  throw new TypeError(
+    "Failed to execute 'crc32' on 'ZlibUtil': parameter 1 is not of type 'string or ArrayBuffer or ArrayBufferView'.",
   );
 }
-export function crc32(input: unknown, value = 0): number {
-  validateInteger(value, "value", 0, 0xffffffff);
+export function crc32(input: CodecInput, value = 0): number {
+  validateUint32(value, "value");
   let crc = value ^ -1;
   for (const byte of data(input)) {
     crc ^= byte;
@@ -390,7 +390,8 @@ export function crc32(input: unknown, value = 0): number {
   return (crc ^ -1) >>> 0;
 }
 export default {
-  ...original,
+  codes,
+  ...classic,
   ...topLevelConstants,
   constants,
   ...compression,

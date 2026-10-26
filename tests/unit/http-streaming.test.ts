@@ -1,52 +1,59 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { request } from "../../src/compat/http/index";
 afterEach(() => vi.unstubAllGlobals());
-it("starts sending before end and holds write callbacks until the consumer reads", async () => {
-  let body!: ReadableStream<Uint8Array>;
-  let respond!: (response: Response) => void;
-  const fetcher = vi.fn((_url, init) => {
-    body = init.body;
-    return new Promise<Response>((resolve) => {
-      respond = resolve;
-    });
-  });
-  vi.stubGlobal("fetch", fetcher);
-  const req = request("http://example.test/upload", { method: "POST" });
-  req.on("error", () => {});
-  const written = vi.fn();
-  expect(req.write(new Uint8Array(128 * 1024), written)).toBe(false);
-  expect(fetcher).toHaveBeenCalledOnce();
-  expect(written).not.toHaveBeenCalled();
-  const reader = body.getReader();
-  expect((await reader.read()).value?.byteLength).toBe(128 * 1024);
-  await vi.waitFor(() => expect(written).toHaveBeenCalledOnce());
-  req.end();
-  expect((await reader.read()).done).toBe(true);
-  respond(new Response(null, { status: 204 }));
-});
-it("destroy settles a blocked writer and errors the upload", async () => {
-  let body!: ReadableStream<Uint8Array>;
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((_url, init) => {
+it.each([false, true])(
+  "captures writes before queued processing (corked=%s) and sends at end",
+  async (corked) => {
+    let body!: Blob;
+    const fetcher = vi.fn((_url, init) => {
       body = init.body;
-      return new Promise(() => {});
-    }),
-  );
-  const req = request("http://example.test/upload", { method: "POST" });
-  req.on("error", () => {});
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const req = request("http://example.test/upload", { method: "POST" });
+    req.on("error", () => {});
+    const written = vi.fn(),
+      chunk = new Uint8Array([65]);
+    if (corked) req.cork();
+    req.write(chunk, written);
+    chunk[0] = 66;
+    if (corked) req.uncork();
+    await vi.waitFor(() => expect(written).toHaveBeenCalledOnce());
+    expect(written.mock.calls[0]?.[0]).toBeFalsy();
+    expect(fetcher).not.toHaveBeenCalled();
+    req.end("C");
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(await body.text()).toBe("AC");
+  },
+);
+it("aborting an unfinished upload does not initiate a fetch", async () => {
+  const fetcher = vi.fn(() => new Promise<Response>(() => {}));
+  vi.stubGlobal("fetch", fetcher);
+  const controller = new AbortController(),
+    reason = new Error("stopped");
+  const req = request("http://example.test/upload", {
+    method: "POST",
+    signal: controller.signal,
+  });
+  const errors: Error[] = [];
+  req.on("error", (error) => errors.push(error));
   const written = vi.fn();
   req.write(new Uint8Array(65536), written);
-  req.destroy(new Error("stopped"));
-  await vi.waitFor(() => expect(written).toHaveBeenCalledOnce());
-  await expect(body.getReader().read()).rejects.toThrow("stopped");
-  expect((req as any).upload).toBeUndefined();
+  controller.abort(reason);
+  await vi.waitFor(() => expect(errors).toHaveLength(1));
+  expect(written).toHaveBeenCalledOnce();
+  expect(written.mock.calls[0]?.[0]).toBeFalsy();
+  expect(errors[0]).toMatchObject({
+    name: "AbortError",
+    code: "ABORT_ERR",
+    cause: reason,
+  });
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(req.destroyed).toBe(true);
 });
-it("releases queued writes on destroy", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(() => new Promise(() => {})),
-  );
+it("settles every accepted write once on destroy", async () => {
+  const fetcher = vi.fn(() => new Promise<Response>(() => {}));
+  vi.stubGlobal("fetch", fetcher);
   const req = request("http://example.test/upload", { method: "POST" });
   req.on("error", () => {});
   const callbacks = [vi.fn(), vi.fn(), vi.fn()];
@@ -58,4 +65,5 @@ it("releases queued writes on destroy", async () => {
     ).toBe(true),
   );
   expect(req.writableLength).toBe(0);
+  expect(fetcher).not.toHaveBeenCalled();
 });

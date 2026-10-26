@@ -57,7 +57,7 @@ Start with network execution: requests go to your existing deployed Worker. Bund
 
 Follow the [native embedding verification](native-embedding.md#verification) or [Capacitor acceptance flow](integration.md#6-verify-the-existing-application-in-capacitor). Test navigation, authentication, mutations, lifecycle and network failures in your own app. Simulator/emulator results do not replace checking the devices you intend to support.
 
-Review [security responsibilities](integration.md#5-security-the-device-is-not-a-trusted-server) and [known limitations](compatibility.md). This release is **0.1.4**; native embedding does not supply general Capacitor plugin integration or automatic store publication.
+Review [security responsibilities](integration.md#5-security-the-device-is-not-a-trusted-server) and [known limitations](compatibility.md). This release is **0.1.5**; native embedding does not supply general Capacitor plugin integration or automatic store publication.
 
 ## Examples and development
 

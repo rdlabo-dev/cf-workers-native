@@ -13,7 +13,14 @@ function checkNodeCases(reports) {
     [],
   );
 }
-import { cp, mkdtemp, writeFile, mkdir, readdir } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  writeFile,
+  mkdir,
+  readdir,
+  readFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
@@ -43,6 +50,9 @@ console.log(`Consumer package: ${pack.name}@${pack.version} (${temp})`);
 for (const required of [
   "dist/ios.js",
   "dist/android.js",
+  "dist/compat/zlib/classic-base.cjs",
+  "dist/compat/zlib/classic-base.d.cts",
+  "dist/compat/zlib/native-zlib.js",
   "native/ios-host/WorkersView.swift",
   "native/android/consumer-rules.pro",
   "native/android/src/main/java/jp/rdlabo/workerscapacitor/WorkersNative.java",
@@ -110,8 +120,11 @@ for (const notice of [
     (name) => `dist/compat/crypto/LICENSE.${name}`,
   ),
   "dist/compat/crypto/LICENSE-APACHE",
+  "dist/compat/crypto/LICENSE.boringssl",
   "dist/compat/crypto/LICENSE-3RD-PARTY.md",
-  ...["brotli", "zstd", "emscripten", "musl"].map(
+  "dist/compat/zlib/LICENSE-APACHE",
+  "dist/compat/zlib/LICENSE-3RD-PARTY.md",
+  ...["brotli", "zstd", "zlib", "emscripten", "musl"].map(
     (name) => `dist/compat/zlib/LICENSE.${name}`,
   ),
 ]) {
@@ -152,6 +165,7 @@ execFileSync(
     "express@5.3.0",
     "@capacitor/core@8.5.3",
     "typescript@7.0.2",
+    "@types/node@26.6.5",
   ],
   { cwd: temp, stdio: "pipe" },
 );
@@ -296,6 +310,39 @@ execFileSync(
   ],
   { cwd: temp, stdio: "pipe" },
 );
+// Compile the installed adapter declarations, rather than resolving node:fs
+// to @types/node. Library checking must remain enabled to catch broken .d.ts.
+for (const fixture of ["fs-consumer.mts", "zlib-consumer.mts"]) {
+  await writeFile(
+    join(temp, fixture),
+    (await readFile(join(root, "tests/types", fixture), "utf8")).replaceAll(
+      "../../src/",
+      "./node_modules/cf-workers-native/dist/",
+    ),
+  );
+  execFileSync(
+    process.execPath,
+    [
+      "node_modules/typescript/bin/tsc",
+      "--noEmit",
+      "--strict",
+      "--skipLibCheck",
+      "false",
+      "--types",
+      "node",
+      "--lib",
+      "esnext,dom",
+      "--moduleResolution",
+      "nodenext",
+      "--module",
+      "nodenext",
+      "--target",
+      "es2022",
+      fixture,
+    ],
+    { cwd: temp, stdio: "pipe" },
+  );
+}
 // Readiness must identify this consumer, not an unrelated preview on the
 // same port. Otherwise a stale server can supply passing historical results.
 const previewIdentity = randomUUID();

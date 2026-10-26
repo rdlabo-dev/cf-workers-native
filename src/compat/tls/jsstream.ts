@@ -27,15 +27,16 @@ import { Buffer } from "node:buffer";
 
 /* eslint-disable @typescript-eslint/no-redundant-type-constituents */
 
+import { markInternalErrorInterruption } from "../stream/destroy.js";
 import { notStrictEqual } from "../assert/index.js";
 import { Socket } from "../net/internal-net.js";
 import { ERR_STREAM_WRAP } from "./errors.js";
 import { Duplex, toBYOBWeb } from "../stream/duplex.js";
 import type {
   SocketInfo,
-  Writer,
-  Socket as CloudflareSocket,
-} from "node-internal:sockets";
+  PlatformSocket as CloudflareSocket,
+} from "../net/sockets.js";
+type Writer = WritableStream<Uint8Array>;
 
 const kCurrentWriteRequest = Symbol("kCurrentWriteRequest");
 const kCurrentShutdownRequest = Symbol("kCurrentShutdownRequest");
@@ -99,8 +100,8 @@ export class JSStreamSocket extends Socket {
         writable: webStream.writable as unknown as Writer,
       },
       // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-      reader: new ReadableStreamBYOBReader(webStream.readable),
-      writer: new WritableStreamDefaultWriter<unknown>(webStream.writable),
+      reader: webStream.readable.getReader({ mode: "byob" }),
+      writer: webStream.writable.getWriter(),
       options: {
         host: "0.0.0.0",
         port: 0,
@@ -109,7 +110,15 @@ export class JSStreamSocket extends Socket {
     };
 
     stream.pause();
-    stream.on("error", (err) => this.emit("error", err));
+    stream.on("error", (err) => {
+      const unobserved = this.listenerCount("error") === 0;
+      try {
+        this.emit("error", err);
+      } catch (error) {
+        if (unobserved) markInternalErrorInterruption(stream, error);
+        throw error;
+      }
+    });
     const ondata = (chunk: string | Buffer): void => {
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-boolean-literal-compare
       if (typeof chunk === "string" || stream.readableObjectMode === true) {
@@ -117,14 +126,13 @@ export class JSStreamSocket extends Socket {
         stream.pause();
         stream.removeListener("data", ondata);
 
-        this.emit("error", new ERR_STREAM_WRAP());
-        return;
+        throw new ERR_STREAM_WRAP();
       }
 
       // TODO(soon): We need to trigger read() result for _handle.reader.read(buf) call
       // in node:net.
     };
-    stream.on("data", ondata);
+    stream.prependListener("data", ondata);
     stream.once("end", () => {
       closePromise.resolve();
     });

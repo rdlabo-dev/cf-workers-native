@@ -158,8 +158,29 @@ function _destroy(
   }
 }
 
+// Workers consumes an unobserved internal TLS parent error at its async
+// stream boundary. Direct EventEmitter.emit still throws to its caller.
+const internalErrorInterruptions = new WeakMap<object, unknown>();
+export function markInternalErrorInterruption(stream: object, error: unknown) {
+  internalErrorInterruptions.set(stream, error);
+  queueMicrotask(() => {
+    if (internalErrorInterruptions.get(stream) === error)
+      internalErrorInterruptions.delete(stream);
+  });
+}
 function emitErrorCloseNT(self: Readable | Writable, err: Error): void {
-  emitErrorNT(self, err);
+  try {
+    emitErrorNT(self, err);
+  } catch (error) {
+    if (
+      internalErrorInterruptions.has(self) &&
+      internalErrorInterruptions.get(self) === error
+    ) {
+      internalErrorInterruptions.delete(self);
+      return;
+    }
+    throw error;
+  }
   emitCloseNT(self);
 }
 

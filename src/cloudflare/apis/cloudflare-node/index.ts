@@ -1,3 +1,5 @@
+import { Headers } from "../../../browser/headers/index.js";
+import { Response as WorkersResponse } from "../../../browser/response/index.js";
 // Copyright (c) 2024-2026 Cloudflare, Inc.
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
@@ -121,19 +123,22 @@ export async function handleAsNodeRequest(
       reject(error);
       res.destroy(error);
     });
-    res.once("finish", () => {
-      request.signal.removeEventListener("abort", onAbort);
-      if (!req.complete) req.destroy();
-    });
     res.once("headers", () => {
       try {
         const headers = new Headers();
         for (const [key, value] of Object.entries(res.getHeaders())) {
-          for (const item of Array.isArray(value) ? value : [value])
+          for (const item of Array.isArray(value)
+            ? key.toLowerCase() === "cookie" && value.length >= 2
+              ? [value.join("; ")]
+              : value
+            : [value])
             headers.append(key, String(item));
         }
+        // This bridge exposes the standard Fetch contract. Its HTTP body chunks
+        // are ArrayBuffer-backed; owned Headers also implements the iterator
+        // protocol without depending on a particular TypeScript DOM lib version.
         resolve(
-          new Response(
+          new WorkersResponse(
             request.method === "HEAD" ||
               [204, 205, 304].includes(res.statusCode)
               ? null
@@ -143,32 +148,16 @@ export async function handleAsNodeRequest(
               statusText: res.statusMessage,
               headers,
             },
-          ),
+          ) as unknown as Response,
         );
       } catch (error) {
         reject(error);
         res.destroy(error instanceof Error ? error : new Error(String(error)));
       }
     });
-    const onAbort = () => {
-      const reason = request.signal.reason;
-      const error =
-        reason instanceof Error
-          ? reason
-          : new Error("The operation was aborted", { cause: reason });
-      req.destroy(error);
-      res.destroy(error);
-    };
     res.once("close", () => {
-      request.signal.removeEventListener("abort", onAbort);
-      if (!req.complete) req.destroy();
       if (!res.finished) reject(new Error("Premature close"));
     });
-    request.signal.addEventListener("abort", onAbort, { once: true });
-    if (request.signal.aborted) {
-      onAbort();
-      return;
-    }
     try {
       server.emit("connection", server, req);
       server.emit("request", req, res);

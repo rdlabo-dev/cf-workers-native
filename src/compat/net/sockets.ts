@@ -59,16 +59,55 @@ export function connect(
     throw new TypeError("Invalid TCP address");
   const id = crypto.randomUUID();
   const host = url.hostname.replace(/^\[|\]$/g, "");
-  return transport(call, id, host, options.secureTransport ?? "off", () =>
-    call("WorkersCapacitor", "socketOpen", {
-      id,
-      host,
-      port,
-      tls: options.secureTransport === "on",
-      ...(options.expectedServerHostname
-        ? { servername: options.expectedServerHostname }
-        : {}),
-    }),
+  const directTls = options.secureTransport === "on";
+  let secureCall = call;
+  return transport(
+    (...args) => {
+      const operation = secureCall(...args);
+      return directTls
+        ? operation.catch((error) => {
+            if (
+              error instanceof Error &&
+              error.message.includes(
+                "TLS connection closed without close_notify",
+              )
+            )
+              throw new Error("Network connection lost.");
+            throw error;
+          })
+        : operation;
+    },
+    id,
+    host,
+    options.secureTransport ?? "off",
+    async () => {
+      try {
+        const info = await call("WorkersCapacitor", "socketOpen", {
+          id,
+          host,
+          port,
+          tls: false,
+        });
+        if (options.secureTransport === "on") {
+          const servername = options.expectedServerHostname ?? host;
+          const result = (await call("WorkersCapacitor", "socketStartTls", {
+            id,
+            servername,
+          })) as { tlsEngine?: string } | undefined;
+          // Direct TLS and STARTTLS share the authenticated record engine. On iOS
+          // this also preserves TLS close_notify information that NW TLS hides.
+          if (result?.tlsEngine === "openssl-wasm")
+            secureCall = await nativeTlsSession(call, id, servername);
+        }
+        return info;
+      } catch (error) {
+        if (directTls)
+          throw new Error(
+            "proxy request failed, cannot connect to the specified address",
+          );
+        throw error;
+      }
+    },
   );
 }
 function transport(
@@ -77,6 +116,7 @@ function transport(
   host: string,
   secureTransport: "on" | "off" | "starttls",
   open: () => Promise<unknown>,
+  connectionInfo?: Promise<SocketInfo>,
 ): PlatformSocket {
   let upgraded = false;
   let activeWrite: Promise<void> | undefined;
@@ -104,27 +144,37 @@ function transport(
     resolveClosed();
   };
   let closing: Promise<void> | undefined;
+  let openingStarted = false;
   const close = () => {
     if (upgraded) return Promise.resolve();
     if (!closing) {
       stopped = true;
-      closing = call("WorkersCapacitor", "socketClose", { id }).then(
-        () => {
-          if (!readEnded) {
-            readEnded = true;
-            readableController.error(new Error("Socket closed"));
-          }
-          if (!writeEnded) {
-            writeEnded = true;
-            writableController.error(new Error("Socket closed"));
-          }
-          resolveClosed();
-        },
-        (error) => {
-          rejectClosed(error);
-          throw error;
-        },
-      );
+      // workerd Socket::close waits for the direct TLS connection result. A
+      // STARTTLS socket exposes TCP establishment separately, so its close can
+      // interrupt authentication. Do not synthesize this ordering with timers.
+      const pendingConnection =
+        secureTransport === "on" && !connectionInfo && openingStarted
+          ? opened.catch(() => {})
+          : Promise.resolve();
+      closing = pendingConnection
+        .then(() => call("WorkersCapacitor", "socketClose", { id }))
+        .then(
+          () => {
+            if (!readEnded) {
+              readEnded = true;
+              readableController.error(new Error("Socket closed"));
+            }
+            if (!writeEnded) {
+              writeEnded = true;
+              writableController.error(new Error("Socket closed"));
+            }
+            resolveClosed();
+          },
+          (error) => {
+            rejectClosed(error);
+            throw error;
+          },
+        );
     }
     return closing;
   };
@@ -142,6 +192,7 @@ function transport(
   const opened = Promise.resolve()
     .then(() => {
       if (stopped) throw new Error("Socket closed before connection");
+      openingStarted = true;
       return open();
     })
     .then(async (value) => {
@@ -248,7 +299,10 @@ function transport(
     notifyTerminal();
   });
   const socket: PlatformSocket = {
-    opened,
+    // Workers STARTTLS inherits the established TCP connection's opened
+    // notification. Reads, writes and the terminal watcher still await the
+    // private authenticated `opened` promise above.
+    opened: connectionInfo ?? opened,
     closed,
     readable,
     writable,
@@ -270,8 +324,33 @@ function transport(
       writableController.error(error);
       resolveClosed();
       let secureCall = call;
+      let tlsFailed = false;
+      const failedOperation = (method: string) => {
+        if (method === "socketRead") return { eof: true };
+        if (method === "socketWatch" || method === "socketEnd") return {};
+        throw new Error("Network connection lost.");
+      };
       return transport(
-        (...args) => secureCall(...args),
+        async (...args) => {
+          const method = args[1];
+          const io = [
+            "socketRead",
+            "socketWatch",
+            "socketWrite",
+            "socketEnd",
+          ].includes(method);
+          if (tlsFailed && io) return failedOperation(method);
+          try {
+            return await secureCall(...args);
+          } catch (error) {
+            if (!io) throw error;
+            // Workers STARTTLS exposes transport/TLS failure as readable EOF,
+            // while writes fail. Never forward application bytes after a
+            // failed handshake; close still reaches the native resource.
+            tlsFailed = true;
+            return failedOperation(method);
+          }
+        },
         id,
         host,
         "on",
@@ -279,14 +358,19 @@ function transport(
           const info = await opened;
           await activeWrite;
           const hostname = options.expectedServerHostname ?? host;
-          const result = (await call("WorkersCapacitor", "socketStartTls", {
-            id,
-            servername: hostname,
-          })) as { tlsEngine?: string } | undefined;
-          if (result?.tlsEngine === "openssl-wasm")
-            secureCall = await nativeTlsSession(call, id, hostname);
+          try {
+            const result = (await call("WorkersCapacitor", "socketStartTls", {
+              id,
+              servername: hostname,
+            })) as { tlsEngine?: string } | undefined;
+            if (result?.tlsEngine === "openssl-wasm")
+              secureCall = await nativeTlsSession(call, id, hostname);
+          } catch {
+            tlsFailed = true;
+          }
           return info;
         },
+        opened,
       );
     },
   };

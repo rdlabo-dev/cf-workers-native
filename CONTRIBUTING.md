@@ -6,13 +6,14 @@ Run `npm run format` from the repository root before submitting changes. `npm ru
 
 ## Complete compatibility units only
 
-New compatibility implementations must be completed before merge or release. A useful subset, a working framework demo, or passing tests for selected methods is not enough. The release exceptions cover existing implementations in [0.1.0 Preview and its explicitly authorized 0.1.1, 0.1.2, 0.1.3 and 0.1.4 follow-ups](#010-preview-exception).
+New compatibility implementations must be completed before merge or release unless an explicitly authorized release exception applies. A useful subset, a working framework demo, or passing tests for selected methods does not establish whole-module completion. Release exceptions cover [the current PR #72 candidate](#pr-72-scoped-release-exception) and existing implementations in [0.1.0 Preview and its explicitly authorized 0.1.1, 0.1.2, 0.1.3 and 0.1.4 follow-ups](#010-preview-exception).
 
 For Node.js compatibility, the acceptance unit is a module, including its Workers
 exports, subpaths and observable behavior. For a binding or Web API, define the
 named API unit before implementation. Do not redefine the unit around the methods
 that happen to work. Large units may be developed in several commits or draft PRs,
-but incomplete implementation PRs must not be merged into main.
+but incomplete implementation PRs must not be merged into main unless covered by
+an explicitly authorized release exception.
 
 The target is Cloudflare Workers, not every API available in a Node.js process.
 Pin the workerd version, compatibility date and flags. An operation unsupported
@@ -63,11 +64,57 @@ Only then may the inventory say **Complete**. Until then, use **In progress**,
 
 ## Work in progress
 
-Keep incomplete compatibility work on a development branch or draft PR. Do not
+Except for an explicitly authorized release exception, keep incomplete compatibility work on a development branch or draft PR. Do not
 activate it in a merged build alias, public export or default runtime path, and do
 not ship it behind an experimental flag as a substitute for finishing it. Design
 notes and reproducible experiments can be reviewed independently without adding
 unfinished production behavior.
+
+### PR #72 scoped release exception
+
+The maintainer explicitly authorized preparing one release of the existing
+implementation in PR #72 while retaining incomplete compatibility as **In progress**.
+This exception is scoped to the implementation at
+`7d205ddd0714787b057c715cca1b421ec81a305a`, its release documentation, and fixes for
+regressions found while validating that same scope. It does not authorize adding
+new API scope or apply automatically to later releases.
+
+For this candidate, unresolved implementation and operation-coverage items do not
+by themselves prevent release readiness. They must remain visible in the
+[compatibility guide](docs/compatibility.md) and release notes. Missing APIs,
+unverified operations and known engine/host differences remain distinct; none is
+promoted to **Complete** or described as technically impossible merely to release.
+The whole-module acceptance gate above remains the criterion for **Complete**.
+
+Release readiness under this exception requires passing the existing required
+contracts, public imports/types, independent package acceptance and applicable
+iOS/Android page and Dedicated Worker scenarios. Verify that the evidence matches
+the candidate's implementation; do not reuse evidence across runtime changes.
+Known failures in those required scenarios must be fixed, not relabeled as
+unfinished work or skipped. Preserve failed CI attempts and disclose unresolved
+test infrastructure instability even when an unchanged rerun passes.
+Manager and independent acceptance review must assess this scoped readiness and
+the accuracy of the limitations. Store results in the PR and generated artifacts.
+
+This is an exception to the completeness gate, not a publication action. Version
+selection, PR publication/status changes, merge, tag push and package publication
+still follow the maintainer's explicit authorization and the CI release workflow.
+
+### Explicit WebSocket attachment representation boundary
+
+The WebView WebSocket attachment implementation may use a documented canonical
+serialization representation for its 16,384-byte limit. This is an explicitly
+authorized boundary: V8 can serialize arrays with identical observable values
+and properties to different lengths depending on its private packed/holey storage
+representation, which JavaScriptCore cannot inspect or reproduce.
+
+This exception covers only limit decisions and reported byte lengths that depend
+on engine-private representation. It does not waive snapshot isolation, cyclic
+references, supported value types, validation, ordinary size-limit enforcement,
+or any other WebSocket API, network behavior, or native acceptance requirement.
+See the [scope and reproducible boundary probe](src/browser/websocket/README.md).
+The canonical representation must be documented and verified before acceptance;
+this exception does not itself certify the current implementation.
 
 ### Explicit WebView events profile
 

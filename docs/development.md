@@ -135,7 +135,7 @@ requires a verified namespace, release signing key and explicit publication.
 Run the independent consumer suite against an exact registry version:
 
 ```sh
-CONSUMER_PACKAGE=cf-workers-native@0.1.4 npm run test:package
+CONSUMER_PACKAGE=cf-workers-native@0.1.5 npm run test:package
 ```
 
 This downloads the published tarball instead of packing the checkout. The same
@@ -144,3 +144,26 @@ shared runtime contracts. `artifacts/package-results.json` records the temporary
 consumer directory. Its `node_modules/cf-workers-native` directory can also be
 passed as `WORKERS_NPM_PACKAGE_DIR` to the native embedding runners. Without
 `CONSUMER_PACKAGE`, the suite builds and packs the local checkout as before.
+
+For native acceptance from a fresh registry installation, prepare once, then run
+the ordinary Worker onboarding flow on each booted simulator/emulator:
+
+```sh
+CONSUMER_VERSION=0.1.5 npm run test:events:native:prepare --prefix demo
+node demo/tests/experiments/published-package/native.mjs ios <simulator-uuid>
+node demo/tests/experiments/published-package/native.mjs android <emulator-serial>
+```
+
+Run these commands serially: the consumer shares its generated web directory.
+Preparation verifies npm's SHA-512 integrity and records the archive SHA-256.
+The native build imports the installed Vite plugin and runtime, and rejects SDK
+modules from the checkout. The fixture checks initial rendering, link navigation,
+form submission exactly once and the POST/303/GET flow against a local HTTPS
+Workers backend. It does not contact a production service.
+
+Evidence is written to `artifacts/validation/published-<version>/onboarding/`.
+`elapsedFlowMs` measures native launch through completion of the whole flow;
+it is not a startup benchmark. `documentReadyMs` is the document's performance
+clock, and `bundleBytes` covers generated web assets, not the native app binary.
+The [published-package fixture](../demo/tests/experiments/published-package/README.md)
+documents the procedure and verification limits.

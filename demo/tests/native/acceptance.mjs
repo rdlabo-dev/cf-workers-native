@@ -11,6 +11,7 @@ import {
   readdir,
   stat,
   access,
+  realpath,
 } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -28,6 +29,7 @@ export async function runNativeAcceptance({
   publicDir = false,
   kvExecution,
   remoteBindings,
+  assetsExecution = "remote",
   execution = "network",
   expectedMode = "worker",
   render = "/",
@@ -38,7 +40,11 @@ export async function runNativeAcceptance({
   appId = "jp.rdlabo.workerscapacitor.opennext",
   bootstrapCode,
   configureNative,
+  buildPlugin = workersCapacitorPlugin,
+  bootstrapDirectory,
+  forbiddenModuleRoots = [],
   timeout = 60000,
+  measurements = () => ({}),
 }) {
   const physicalIOS =
     platform === "ios" && process.env.IOS_PHYSICAL_DEVICE === "1";
@@ -73,8 +79,9 @@ export async function runNativeAcceptance({
         "Physical iOS acceptance requires a deployed HTTPS backend; local test CAs are simulator-only",
       );
     await mkdir(artifacts, { recursive: true });
-    const bootstrap = join(artifacts, "bootstrap");
-    await mkdir(bootstrap, { recursive: true });
+    const bootstrapPath = bootstrapDirectory ?? join(artifacts, "bootstrap");
+    await mkdir(bootstrapPath, { recursive: true });
+    const bootstrap = await realpath(bootstrapPath);
     await writeFile(
       join(bootstrap, "index.html"),
       '<!doctype html><html><head><meta charset="utf-8"></head><body><script type="module" src="/main.js"></script></body></html>',
@@ -89,13 +96,25 @@ export async function runNativeAcceptance({
       root: bootstrap,
       publicDir,
       plugins: [
-        workersCapacitorPlugin({
+        {
+          name: "acceptance-package-isolation",
+          generateBundle() {
+            for (const id of this.getModuleIds()) {
+              for (const root of forbiddenModuleRoots)
+                assert.ok(
+                  !id.startsWith(root + "/"),
+                  `Checkout module entered installed-package build: ${id}`,
+                );
+            }
+          },
+        },
+        buildPlugin({
           execution,
           worker,
           workerConfig,
           kvExecution,
           remoteBindings,
-          assetsExecution: "remote",
+          assetsExecution: assetsExecution ?? undefined,
         }),
       ],
       build: { outDir: join(shell, "www"), emptyOutDir: true },
@@ -262,6 +281,7 @@ export async function runNativeAcceptance({
       JSON.stringify(
         {
           platform,
+          ...measurements(launched),
           elapsedFlowMs: Date.now() - launched,
           bundleBytes: (
             await Promise.all(

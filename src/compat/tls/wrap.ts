@@ -109,7 +109,7 @@ export declare class TLSSocket extends Socket {
 
   constructor(
     socket: Socket | Duplex | undefined,
-    opts: TLSSocket["_tlsOptions"],
+    opts?: TLSSocket["_tlsOptions"],
   );
   prototype: TLSSocket;
 
@@ -245,10 +245,6 @@ export function TLSSocket(
     if (processImpl.shouldThrowOnNotImplementedTlsOption()) {
       throw new ERR_OPTION_NOT_IMPLEMENTED("options.checkServerIdentity");
     }
-  }
-
-  if (socket != null && !(socket instanceof Socket)) {
-    throw new ERR_METHOD_NOT_IMPLEMENTED("TLS upgrade of a custom Duplex");
   }
 
   if (

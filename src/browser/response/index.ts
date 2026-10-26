@@ -30,6 +30,7 @@ export function responseEncoding(response: Response) {
 export interface StructuredCloneResponseSnapshot {
   status: number;
   statusText: string;
+  serializedStatusText?: string;
   headers: Headers;
   cf: Record<string, unknown> | undefined;
   webSocket: WebSocket | null;
@@ -54,6 +55,7 @@ export let networkResponse: (
 export class Response extends Body {
   #status: number;
   #statusText: string;
+  #serializedStatusText: string | undefined;
   #headers: Headers;
   #cf: Record<string, unknown> | undefined;
   #webSocket: WebSocket | null;
@@ -70,6 +72,7 @@ export class Response extends Body {
     structuredCloneResponseSnapshot = (response) => ({
       status: response.#status,
       statusText: response.#statusText,
+      serializedStatusText: response.#serializedStatusText,
       headers: response.#headers,
       cf: response.#cf,
       webSocket: response.#webSocket,
@@ -91,6 +94,7 @@ export class Response extends Body {
               encodeBody: snapshot.encodeBody,
             });
       response.#headers = snapshot.headers;
+      response.#serializedStatusText = snapshot.serializedStatusText;
       setBodyHeaders(response, snapshot.headers);
       response.#cf = snapshot.cf;
       response.#url = snapshot.url;
@@ -104,7 +108,7 @@ export class Response extends Body {
     const status =
       init.status === undefined ? 200 : Math.trunc(Number(init.status));
     const webSocket = init.webSocket ?? null;
-    if (webSocket !== null && !(webSocket instanceof WebSocket))
+    if (webSocket !== null && !isWebSocket(webSocket))
       throw new TypeError("webSocket must be a WebSocket");
     if (webSocket === null ? !(status >= 200 && status <= 599) : status !== 101)
       throw new RangeError(
@@ -112,10 +116,11 @@ export class Response extends Body {
           ? "Responses may only be constructed with status codes in the range 200 to 599, inclusive."
           : "Responses with a WebSocket must have status code 101.",
       );
+    const suppliedStatusText = init.statusText;
     const text =
-      init.statusText === undefined
+      suppliedStatusText === undefined
         ? statusText(status)
-        : webString(init.statusText);
+        : webString(suppliedStatusText);
     if (/[\x00-\x1f]/.test(text)) throw new TypeError("Invalid statusText");
     const bodyEncoding =
       init instanceof Response
@@ -142,6 +147,8 @@ export class Response extends Body {
     super(body, headers);
     this.#status = status;
     this.#statusText = text;
+    this.#serializedStatusText =
+      suppliedStatusText === undefined ? undefined : text;
     this.#headers = headers;
     this.#cf = cloneValue(init.cf);
     this.#webSocket = webSocket;
@@ -189,6 +196,7 @@ export class Response extends Body {
             encodeBody: encoding.get(this),
           });
     copy.#headers = cloneHeaders(this.#headers);
+    copy.#serializedStatusText = this.#serializedStatusText;
     setBodyHeaders(copy, copy.#headers);
     copy.#url = this.#url;
     copy.#redirected = this.#redirected;
@@ -244,3 +252,5 @@ Object.defineProperty(Response.prototype, Symbol.toStringTag, {
 for (const key of Object.getOwnPropertyNames(Response.prototype))
   if (key !== "constructor")
     Object.defineProperty(Response.prototype, key, { enumerable: true });
+import type { WebSocket } from "../websocket/endpoint.js";
+import { isWebSocket } from "../websocket/brand.js";

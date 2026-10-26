@@ -1,9 +1,17 @@
 import { build } from "esbuild";
-import { readFile } from "node:fs/promises";
+import { readFile, copyFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
 // Fail before packaging if a generated implementation and its provenance drift.
 for (const [asset, manifest] of [
+  [
+    "src/compat/zlib/native-zlib.wasm",
+    "src/compat/zlib/native-zlib.build.json",
+  ],
+  [
+    "src/compat/crypto/native-cipher.wasm",
+    "src/compat/crypto/native-cipher.build.json",
+  ],
   [
     "src/compat/crypto/native-crypto.wasm",
     "src/compat/crypto/native-crypto.build.json",
@@ -65,6 +73,29 @@ await build({
 await build({
   entryPoints: ["src/compat/crypto/native-crypto.ts"],
   outfile: "dist/compat/crypto/native-crypto.js",
+  bundle: true,
+  format: "esm",
+  target: "es2022",
+  loader: { ".wasm": "binary" },
+});
+
+await build({
+  entryPoints: ["src/compat/zlib/native-zlib.ts"],
+  outfile: "dist/compat/zlib/native-zlib.js",
+  bundle: true,
+  format: "esm",
+  target: "es2022",
+  loader: { ".wasm": "binary" },
+});
+
+await copyFile(
+  "src/compat/zlib/classic-base.d.cts",
+  "dist/compat/zlib/classic-base.d.cts",
+);
+
+await build({
+  entryPoints: ["src/compat/crypto/native-cipher.ts"],
+  outfile: "dist/compat/crypto/native-cipher.js",
   bundle: true,
   format: "esm",
   target: "es2022",

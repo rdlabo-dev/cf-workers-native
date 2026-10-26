@@ -1,3 +1,6 @@
+import { bufferBytes, viewBytes } from "../../shared/buffer-source.js";
+import { isAnyBuffer } from "./validation.js";
+import { signatureDigest } from "./digests.js";
 import { Buffer } from "node:buffer";
 import { NativeDigest } from "./native-crypto.js";
 import { keyStates } from "./key-state.js";
@@ -47,63 +50,110 @@ function rawSignature(data: Uint8Array, width: number): Buffer {
   }
   return output;
 }
-class SignHandle {
+function rsaParameters(
+  type: string,
+  padding: number | undefined,
+  saltLength: number | undefined,
+  verifying: boolean,
+) {
+  if (type !== "rsa" && type !== "rsa-pss") return;
+  const mode = padding ?? (type === "rsa-pss" ? 6 : 1);
+  if (
+    ![1, 3, 6].includes(mode) ||
+    (mode === 6 && saltLength !== undefined && saltLength < -2)
+  )
+    throw new Error("Failed to set RSA parameters for signature");
+  if (mode === 3)
+    throw new Error(
+      verifying
+        ? "Failed to set digest context for signature verification"
+        : "Failed to set signature digest",
+    );
+}
+export class SignHandle {
   private hash: NativeDigest;
   constructor(private algorithm: string) {
-    this.hash = new NativeDigest(algorithm);
+    this.algorithm = signatureDigest(algorithm);
+    this.hash = new NativeDigest(this.algorithm);
   }
   update(data: Uint8Array) {
-    this.hash.update(
-      Buffer.from(data.buffer, data.byteOffset, data.byteLength),
-    );
+    this.hash.update(viewBytes(data));
   }
   sign(value: any, padding?: number, saltLength?: number, encoding?: number) {
+    this.hash.assertActive();
     const native = key(value),
+      hash = this.hash.final();
+    if (native.type === "dsa")
+      throw new Error("Signing with DSA keys is not currently supported");
+    if (native.type === "ed25519")
+      throw new Error("Failed to set signature digest");
+    if (native.type === "x25519")
+      throw new Error("Failed to initialize signing context");
+    rsaParameters(native.type, padding, saltLength, false);
+    let signed: Uint8Array;
+    try {
       signed = native.signHash(
         this.algorithm,
-        this.hash.final(),
-        padding,
-        saltLength,
+        hash,
+        native.type.startsWith("rsa") ? padding : undefined,
+        saltLength ?? -1,
       );
+    } catch {
+      throw new Error("Failed to generate signature");
+    }
     return encoding === 1 && native.type === "ec"
       ? rawSignature(signed, Math.ceil(native.bits / 8))
       : signed;
   }
 }
-class VerifyHandle {
+export class VerifyHandle {
   private hash: NativeDigest;
   constructor(private algorithm: string) {
-    this.hash = new NativeDigest(algorithm, "Verification");
+    this.algorithm = signatureDigest(algorithm);
+    this.hash = new NativeDigest(this.algorithm, "Verification");
   }
   update(data: Uint8Array) {
-    this.hash.update(
-      Buffer.from(data.buffer, data.byteOffset, data.byteLength),
-    );
+    this.hash.update(viewBytes(data));
   }
   verify(
     value: any,
-    signature: Uint8Array,
+    signature: ArrayBuffer | ArrayBufferView,
     padding?: number,
     saltLength?: number,
     encoding?: number,
   ) {
-    const native = key(value),
-      hash = this.hash.final();
+    if (!isAnyBuffer(signature) && !ArrayBuffer.isView(signature))
+      throw new TypeError(
+        "Failed to execute 'verify' on 'VerifyHandle': parameter 2 is not of type 'BufferSource'.",
+      );
+    this.hash.assertActive();
+    const native = key(value);
+    if (native.type === "ed25519" || native.type === "ed448")
+      throw new Error("Unsupported operation for this key");
+    let signatureBytes: Buffer = Buffer.from(
+      isAnyBuffer(signature) ? bufferBytes(signature) : viewBytes(signature),
+    );
+    const hash = this.hash.final();
+    if (native.type === "dsa")
+      throw new Error("Verifying with DSA keys is not currently supported");
+    if (native.type === "x25519")
+      throw new Error("Failed to initialize key for verification");
+    rsaParameters(native.type, padding, saltLength, true);
     if (encoding === 1 && native.type === "ec") {
       const width = Math.ceil(native.bits / 8);
-      if (signature.length !== width * 2) return false;
-      signature = der(
+      if (signatureBytes.length !== width * 2) return false;
+      signatureBytes = der(
         48,
-        integer(signature.subarray(0, width)),
-        integer(signature.subarray(width)),
+        integer(signatureBytes.subarray(0, width)),
+        integer(signatureBytes.subarray(width)),
       );
     }
     return native.verifyHash(
       this.algorithm,
       hash,
-      signature,
-      padding,
-      saltLength,
+      signatureBytes,
+      native.type.startsWith("rsa") ? padding : undefined,
+      saltLength ?? -1,
     );
   }
 }

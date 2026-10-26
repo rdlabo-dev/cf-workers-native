@@ -1,9 +1,14 @@
-import { secretMaterial } from "./keys.js";
+import { KeyObject } from "./keys.js";
+import { createHmac } from "./hash.js";
+import { aliases } from "./hash-handle.js";
 // RFC 5869 extract-and-expand, using the existing HMAC implementation.
 import { Buffer } from "node:buffer";
-// @ts-expect-error dependency has no declarations
-import original from "crypto-browserify/index.js";
-import { bytes, validateInteger } from "./validation.js";
+import {
+  arrayBufferOrView,
+  inputBytes,
+  validateInteger,
+  validateCryptoLength,
+} from "./validation.js";
 import { validateString, validateFunction } from "../net/validators.js";
 import { ERR_OUT_OF_RANGE } from "../net/errors.js";
 function parameters(
@@ -13,10 +18,30 @@ function parameters(
   info: unknown,
   length: number,
 ) {
+  if (key instanceof KeyObject) key = key.export();
   validateString(digest, "digest");
-  const ikm = bytes(secretMaterial(key), "ikm"),
-    s = bytes(salt, "salt"),
-    i = bytes(info, "info");
+  const ikm = arrayBufferOrView(key, "ikm", [
+      "string",
+      "SecretKeyObject",
+      "ArrayBuffer",
+      "TypedArray",
+      "DataView",
+      "Buffer",
+    ]),
+    s = arrayBufferOrView(salt, "salt", [
+      "string",
+      "ArrayBuffer",
+      "TypedArray",
+      "DataView",
+      "Buffer",
+    ]),
+    i = arrayBufferOrView(info, "info", [
+      "string",
+      "ArrayBuffer",
+      "TypedArray",
+      "DataView",
+      "Buffer",
+    ]);
   validateInteger(length, "length", 0, 2147483647);
   if (i.byteLength > 1024)
     throw new ERR_OUT_OF_RANGE(
@@ -33,21 +58,29 @@ function derive({
   i,
   length,
 }: ReturnType<typeof parameters>): ArrayBuffer {
-  const prk = original.createHmac(digest, s).update(ikm).digest();
-  if (length > 255 * prk.length)
-    throw Object.assign(new RangeError("Invalid key length"), {
-      code: "ERR_CRYPTO_INVALID_KEYLEN",
-    });
-  const output = Buffer.alloc(length);
-  let previous = Buffer.alloc(0);
+  const keyBytes = inputBytes(ikm, "getHkdf", 2),
+    saltBytes = inputBytes(s, "getHkdf", 3),
+    infoBytes = inputBytes(i, "getHkdf", 4);
+  if (!aliases[digest.split("\0")[0]!.toLowerCase()])
+    throw new TypeError("Invalid Hkdf digest: " + digest);
+  validateCryptoLength(infoBytes.byteLength, "Hkdf failed: info is too large");
+  validateCryptoLength(saltBytes.byteLength, "Hkdf failed: salt is too large");
+  validateCryptoLength(keyBytes.byteLength, "Hkdf failed: key is too large");
+  const prk = createHmac(digest, saltBytes).update(keyBytes).digest();
+
+  let previous: Buffer = Buffer.alloc(0);
   try {
+    if (length > 255 * prk.length)
+      throw new RangeError("Invalid Hkdf key length");
+    const output = Buffer.alloc(length);
     for (let offset = 0, counter = 1; offset < length; counter++) {
-      previous = original
-        .createHmac(digest, prk)
+      const next = createHmac(digest, prk)
         .update(previous)
-        .update(i)
+        .update(infoBytes)
         .update(Buffer.from([counter]))
         .digest();
+      previous.fill(0);
+      previous = next;
       const size = Math.min(previous.length, length - offset);
       output.set(previous.subarray(0, size), offset);
       offset += size;

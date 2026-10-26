@@ -4,10 +4,36 @@ import { Buffer } from "node:buffer";
 import { validateNumber, validateString } from "../net/validators.js";
 import { ERR_INVALID_ARG_TYPE, ERR_MISSING_ARGS } from "../net/errors.js";
 import { ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE } from "./sign-errors.js";
-import { isAnyArrayBuffer, isArrayBufferView } from "../util/types/index.js";
-import { isKeyObject, getKeyObjectHandle } from "./keys.js";
+import { isAnyBuffer as isAnyArrayBuffer, bytes } from "./validation.js";
+const isArrayBufferView = ArrayBuffer.isView;
+import { KeyObject, isKeyObject, getKeyObjectHandle } from "./keys.js";
 import { createPrivateKey, createPublicKey } from "./asymmetric.js";
 import { keyStates } from "./key-state.js";
+export type KeyData =
+  | string
+  | ArrayBuffer
+  | SharedArrayBuffer
+  | ArrayBufferView
+  | KeyObject
+  | CryptoKey;
+interface HashOptions {
+  padding?: number;
+  oaepHash?: string;
+  oaepLabel?: string | ArrayBuffer | SharedArrayBuffer | ArrayBufferView;
+  encoding?: BufferEncoding;
+}
+export interface RsaKeyOptions extends HashOptions {
+  key: KeyData;
+  format?: "pem" | "der" | "jwk";
+  type?: "pkcs1" | "pkcs8" | "sec1" | "spki";
+  passphrase?: string | ArrayBuffer | ArrayBufferView;
+}
+type CreateAsymmetricKeyOptions = RsaKeyOptions;
+interface PublicPrivateCipherOptions {
+  padding: number;
+  oaepHash: string;
+  oaepLabel?: ArrayBuffer | ArrayBufferView;
+}
 const kRsaPkcs1Padding = 1;
 function operate(operation, key, data, options) {
   const handle = keyStates.get(key)?.asymmetric;
@@ -18,8 +44,13 @@ function operate(operation, key, data, options) {
       ),
       { code: "ERR_METHOD_NOT_IMPLEMENTED" },
     );
-  if (data instanceof ArrayBuffer) data = new Uint8Array(data);
-  return handle.rsa(operation, data, options);
+  return handle.rsa(operation, bytes(data, "buffer"), {
+    ...options,
+    oaepLabel:
+      options.oaepLabel === undefined
+        ? undefined
+        : bytes(options.oaepLabel, "oaepLabel"),
+  });
 }
 const cryptoImpl = {
   publicEncrypt: (...args) => operate(0, ...args),
@@ -57,7 +88,7 @@ function getPaddingAndHash(options: HashOptions): PublicPrivateCipherOptions {
 }
 
 export function privateEncrypt(
-  privateKey: CreateAsymmetricKeyOptions | KeyObject | CryptoKey | undefined,
+  privateKey: CreateAsymmetricKeyOptions | KeyData | undefined,
   buffer: string | ArrayBufferView | ArrayBuffer | undefined,
 ): Buffer {
   if (privateKey === undefined) {

@@ -56,6 +56,7 @@ execFileSync(
     "-sFILESYSTEM=0",
     "-sASSERTIONS=0",
     "-sMALLOC=emmalloc",
+    "-sABORTING_MALLOC=0",
     "--no-entry",
     '-sEXPORTED_FUNCTIONS=["_malloc","_free"]',
     "-o",
@@ -68,6 +69,9 @@ writeFileSync(
   JSON.stringify(
     {
       revisions,
+      bindingSha256: createHash("sha256")
+        .update(readFileSync("src/compat/zlib/native-codecs.c"))
+        .digest("hex"),
       sha256: createHash("sha256").update(readFileSync(output)).digest("hex"),
     },
     null,

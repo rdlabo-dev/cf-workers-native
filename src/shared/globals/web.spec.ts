@@ -5,8 +5,17 @@ import { Response } from "../../browser/response/index.js";
 import { Headers } from "../../browser/headers/index.js";
 import { structuredClone } from "../../browser/structured-clone/index.js";
 import { platform } from "./platform.js";
+import { WebSocket, WebSocketPair } from "../../browser/websocket/endpoint.js";
+import { CloseEvent } from "../../browser/websocket/close-event.js";
 
 describe.each([
+  { name: "WebSocket", original: platform.WebSocket, installed: WebSocket },
+  { name: "WebSocketPair", original: undefined, installed: WebSocketPair },
+  {
+    name: "CloseEvent",
+    original: globalThis.CloseEvent,
+    installed: CloseEvent,
+  },
   { name: "Request", original: platform.Request, installed: Request },
   { name: "Response", original: platform.Response, installed: Response },
   { name: "Headers", original: platform.Headers, installed: Headers },

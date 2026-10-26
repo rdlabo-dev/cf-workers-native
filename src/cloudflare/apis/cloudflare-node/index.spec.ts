@@ -212,7 +212,7 @@ it("propagates response errors after headers to the body reader", async () => {
   }
 });
 
-it("cancels and unlocks an unread upload after an early response", async () => {
+it("leaves an unread upload uncancelled after an early response", async () => {
   let cancelled = false;
   const upload = new ReadableStream<Uint8Array>({
     cancel() {
@@ -229,7 +229,7 @@ it("cancels and unlocks an unread upload after an early response", async () => {
     const response = await httpServerHandler(server).fetch(request);
     expect(await response.text()).toBe("early");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(cancelled).toBe(true);
+    expect(cancelled).toBe(false);
     expect(request.body!.locked).toBe(false);
   } finally {
     server.close();
@@ -657,7 +657,7 @@ it("dispatches an inbound socket through the shared logical-port registry", asyn
   }
 });
 
-it("cancels the request upload when the response reader is cancelled", async () => {
+it("leaves the request upload uncancelled when the response reader is cancelled", async () => {
   let cancelled = false;
   const request = new Request("https://example.test/", {
     method: "POST",
@@ -675,7 +675,7 @@ it("cancels the request upload when the response reader is cancelled", async () 
     const response = await httpServerHandler(server).fetch(request);
     await response.body!.cancel();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(cancelled).toBe(true);
+    expect(cancelled).toBe(false);
     expect(request.body!.locked).toBe(false);
   } finally {
     server.close();

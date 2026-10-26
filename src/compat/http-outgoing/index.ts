@@ -16,25 +16,8 @@ export {
   kUniqueHeaders,
   kHighWaterMark,
 };
-export function parseUniqueHeadersOption(
-  headers?: (string | string[])[],
-): Set<string> | null {
-  if (!Array.isArray(headers)) {
-    return null;
-  }
-
-  const unique = new Set<string>();
-  for (const header of headers) {
-    if (Array.isArray(header)) {
-      for (const h of header) {
-        unique.add(h.toLowerCase());
-      }
-    } else {
-      unique.add(header.toLowerCase());
-    }
-  }
-  return unique;
-}
+import { parseUniqueHeadersOption } from "../http/unique-headers.js";
+export { parseUniqueHeadersOption };
 
 export default {
   OutgoingMessage,

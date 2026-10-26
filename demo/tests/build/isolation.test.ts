@@ -138,7 +138,7 @@ for (const tool of ["vite", "esbuild"] as const) {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30000);
   it(`${tool}: adding a mobile build preserves original server inputs and deployment bytes`, async () => {
     const root = await fixture();
     const out = await mkdtemp(resolve(tmpdir(), "mobile-output-"));

@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { ReadableStream as WorkersReadableStream } from "../stream-web/runtime.js";
 import { asyncDispose } from "../../shared/globals/symbols.js";
 // Copyright (c) 2017-2022 Cloudflare, Inc.
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
@@ -2371,7 +2372,9 @@ export function newReadableStreamFromStreamReadable(
     return new globalThis.ByteLengthQueuingStrategy({ highWaterMark });
   };
 
-  const strategy = evaluateStrategyOrFallback(options?.strategy);
+  const strategy = createTypeBytes
+    ? { highWaterMark }
+    : evaluateStrategyOrFallback(options?.strategy);
 
   let controller;
   let wasCanceled = false;
@@ -2399,7 +2402,10 @@ export function newReadableStreamFromStreamReadable(
   // constructor rejects an invalid high-water mark, and a throw there must
   // leave the source as it was, not paused with this adapter's listeners
   // on it. The first pull() comes no earlier than a later microtask.
-  const stream = new globalThis.ReadableStream(
+  const StreamConstructor = createTypeBytes
+    ? WorkersReadableStream
+    : globalThis.ReadableStream;
+  const stream = new StreamConstructor(
     {
       start(c) {
         controller = c;
@@ -2436,6 +2442,8 @@ export function newReadableStreamFromStreamReadable(
       return;
     }
     controller.close();
+    if (createTypeBytes)
+      queueMicrotask(() => controller.byobRequest?.respond(0));
   });
 
   streamReadable.on("data", onData);

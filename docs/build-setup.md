@@ -31,7 +31,7 @@ application's runtime import changes; Worker source and execution options are sh
 | Android   | `workersAndroid` from `cf-workers-native/android`     | [Existing Android app](native-embedding.md#android) |
 | Capacitor | `workersCapacitor` from `cf-workers-native/capacitor` | [Capacitor app](integration.md)                     |
 
-Use `cf-workers-native@0.1.4` with matching
+Use `cf-workers-native@0.1.5` with matching
 native dependencies; see [dependency setup](native-embedding.md#dependency-setup).
 Build the corresponding entry for each target, then package the entire output
 directory. Existing Capacitor examples below use `workersCapacitor`; the same

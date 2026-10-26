@@ -1,10 +1,13 @@
+import { storeHTTPOptions } from "./server-options.js";
+import { WebSocket } from "../../browser/websocket/endpoint.js";
+import { CloseEvent } from "../../browser/websocket/close-event.js";
 import { asyncDispose } from "../../shared/globals/symbols.js";
 // Copyright (c) 2017-2026 Cloudflare, Inc.
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 // Copyright Joyent and Node contributors. All rights reserved. MIT license.
 // Adapted from workerd v1.20261012.1 node:http compatibility sources.
-import { Readable, Writable } from "node:stream";
+import { Readable, Writable, getDefaultHighWaterMark } from "node:stream";
 import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";
 import {
@@ -24,6 +27,22 @@ import type {
   RequestOptions,
   ServerOptions,
 } from "node:http";
+
+import {
+  validateInteger,
+  validateString,
+  validateBoolean,
+  validateNumber,
+  validateObject,
+  validateOneOf,
+} from "../net/validators.js";
+import { AbortError, ERR_INVALID_ARG_TYPE } from "../net/errors.js";
+import {
+  kIncomingMessage,
+  kServerResponse,
+  kUniqueHeaders,
+} from "./symbols.js";
+import { parseUniqueHeadersOption } from "./unique-headers.js";
 
 export const METHODS = [
   "ACL",
@@ -133,20 +152,7 @@ function coded<T extends Error>(error: T, code: string): T {
   return Object.assign(error, { code });
 }
 function validateType(value: unknown, type: string, name: string) {
-  if (typeof value !== type)
-    throw coded(
-      new TypeError(`${name} must be of type ${type}`),
-      "ERR_INVALID_ARG_TYPE",
-    );
-}
-function validateInteger(
-  value: unknown,
-  name: string,
-  minimum = Number.MIN_SAFE_INTEGER,
-) {
-  validateType(value, "number", name);
-  if (!Number.isSafeInteger(value) || (value as number) < minimum)
-    throw coded(new RangeError(`${name} is out of range`), "ERR_OUT_OF_RANGE");
+  if (typeof value !== type) throw new ERR_INVALID_ARG_TYPE(name, type, value);
 }
 function unsupportedOption(name: string): never {
   throw coded(
@@ -159,30 +165,6 @@ function notImplemented(name: string): Error {
     new Error(`The ${name} method is not implemented`),
     "ERR_METHOD_NOT_IMPLEMENTED",
   );
-}
-function validateString(value: unknown, name: string): asserts value is string {
-  if (typeof value !== "string")
-    throw coded(
-      new TypeError(`The "${name}" argument must be of type string.`),
-      "ERR_INVALID_ARG_TYPE",
-    );
-}
-function validateBoolean(
-  value: unknown,
-  name: string,
-): asserts value is boolean {
-  if (typeof value !== "boolean")
-    throw coded(
-      new TypeError(`The "${name}" argument must be of type boolean.`),
-      "ERR_INVALID_ARG_TYPE",
-    );
-}
-function validateNumber(value: unknown, name: string): asserts value is number {
-  if (typeof value !== "number")
-    throw coded(
-      new TypeError(`The "${name}" argument must be of type number.`),
-      "ERR_INVALID_ARG_TYPE",
-    );
 }
 export function validateHeaderName(
   name: unknown,
@@ -216,6 +198,7 @@ export class OutgoingMessage extends Writable {
   strictContentLength = false;
   private bytesWritten = 0;
   private endingChunk = false;
+  #rejectNonStandardBodyWrites = false;
   chunkedEncoding = false;
   sendDate = false;
   shouldKeepAlive = true;
@@ -241,9 +224,14 @@ export class OutgoingMessage extends Writable {
 
   constructor(
     _req?: IncomingMessage,
-    options: { highWaterMark?: number } = {},
+    options: {
+      highWaterMark?: number;
+      rejectNonStandardBodyWrites?: boolean;
+    } = {},
   ) {
     super({ autoDestroy: false, highWaterMark: options.highWaterMark });
+    this.#rejectNonStandardBodyWrites =
+      options.rejectNonStandardBodyWrites ?? false;
   }
   get headersSent() {
     return this._header !== null || this._headerSent;
@@ -372,6 +360,18 @@ export class OutgoingMessage extends Writable {
       );
     this.bytesWritten = total;
   }
+  #checkBodyAllowed() {
+    if (
+      !this._hasBody &&
+      this.#rejectNonStandardBodyWrites &&
+      !this.finished &&
+      !this.destroyed
+    )
+      throw coded(
+        new Error("Request with GET/HEAD method cannot have body"),
+        "ERR_HTTP_BODY_NOT_ALLOWED",
+      );
+  }
   override write(
     chunk: unknown,
     encoding?: unknown,
@@ -390,6 +390,7 @@ export class OutgoingMessage extends Writable {
     if (!this.endingChunk) this.#checkContentLength(chunk, encoding, false);
     if (!this._header && !this.finished && !this.destroyed)
       this._implicitHeader();
+    this.#checkBodyAllowed();
     return super.write(chunk as never, encoding as never, callback as never);
   }
   override destroy(error?: Error): this {
@@ -453,10 +454,29 @@ export class OutgoingMessage extends Writable {
       !this.destroyed
     )
       this._implicitHeader();
+    if (
+      chunk &&
+      typeof chunk !== "function" &&
+      !this.finished &&
+      !this.destroyed
+    ) {
+      if (typeof chunk !== "string" && !(chunk instanceof Uint8Array))
+        throw new ERR_INVALID_ARG_TYPE(
+          "chunk",
+          ["string", "Buffer", "Uint8Array"],
+          chunk,
+        );
+      if (!this._header) this._implicitHeader();
+      this.#checkBodyAllowed();
+    }
     this.#checkContentLength(chunk, encoding, true);
     this.endingChunk = true;
     try {
-      super.end(chunk as never, encoding as never, callback as never);
+      super.end(
+        (chunk || undefined) as never,
+        encoding as never,
+        callback as never,
+      );
     } finally {
       this.endingChunk = false;
     }
@@ -722,7 +742,11 @@ export class IncomingMessage extends Readable {
       },
       (error) => {
         this.reading = false;
-        this.destroy(error);
+        this.destroy(
+          this.idleTimer && error instanceof TypeError
+            ? new Error(error.message)
+            : error,
+        );
       },
     );
   }
@@ -764,6 +788,14 @@ export class ServerResponse<
     super(req, options);
     this.req = req;
     this.socket = req.socket;
+    this.once("finish", () =>
+      queueMicrotask(() => {
+        if (this._closed) return;
+        this.destroyed = true;
+        this._closed = true;
+        this.emit("close");
+      }),
+    );
     this.body = new ReadableStream<Uint8Array>({
       start: (controller) => {
         this.controller = controller;
@@ -909,6 +941,7 @@ const captureRejection: typeof EventEmitter.captureRejectionSymbol =
     Symbol.for(
       "nodejs.rejection",
     )) as typeof EventEmitter.captureRejectionSymbol;
+
 export class Server extends EventEmitter {
   httpAllowHalfOpen = false;
   timeout = 0;
@@ -922,10 +955,11 @@ export class Server extends EventEmitter {
   rejectNonStandardBodyWrites = false;
   keepAliveTimeout = 5_000;
   keepAliveTimeoutBuffer = 1_000;
-  highWaterMark = 16 * 1024;
+  highWaterMark = getDefaultHighWaterMark(false);
   private port?: number;
-  private IncomingMessageClass: typeof IncomingMessage = IncomingMessage;
-  private ServerResponseClass: typeof ServerResponse = ServerResponse;
+  [kIncomingMessage]: typeof IncomingMessage = IncomingMessage;
+  [kServerResponse]: typeof ServerResponse = ServerResponse;
+  [kUniqueHeaders]: Set<string> | null = null;
 
   constructor(
     options?: ServerOptions | RequestListener,
@@ -953,73 +987,22 @@ export class Server extends EventEmitter {
       }
       return listeners.length !== 0;
     }) as typeof this.emit;
-    if (typeof options === "function") listener = options;
-    else if (options != null) {
-      if (typeof options !== "object")
-        throw coded(
-          new TypeError('The "options" argument must be of type object.'),
-          "ERR_INVALID_ARG_TYPE",
-        );
-      if (options.maxHeaderSize !== undefined) {
-        validateInteger(options.maxHeaderSize, "maxHeaderSize", 0);
-        unsupportedOption("maxHeaderSize");
-      }
-      for (const key of ["requestTimeout", "headersTimeout"] as const) {
-        if (options[key] !== undefined) {
-          validateInteger(options[key], key, 0);
-          this[key] = options[key];
-        }
-      }
-      this.headersTimeout =
-        options.headersTimeout ?? Math.min(60_000, this.requestTimeout);
-      if (
-        this.headersTimeout > 0 &&
-        this.requestTimeout > 0 &&
-        this.headersTimeout > this.requestTimeout
-      )
-        throw coded(
-          new RangeError("headersTimeout must be <= requestTimeout"),
-          "ERR_OUT_OF_RANGE",
-        );
-      for (const key of [
-        "keepAliveTimeout",
-        "keepAliveTimeoutBuffer",
-        "connectionsCheckingInterval",
-      ] as const) {
-        if (options[key] !== undefined) {
-          validateInteger(
-            options[key],
-            key,
-            key === "keepAliveTimeoutBuffer" ? Number.MIN_SAFE_INTEGER : 0,
-          );
-          unsupportedOption(key);
-        }
-      }
-      for (const key of [
-        "insecureHTTPParser",
-        "requireHostHeader",
-        "joinDuplicateHeaders",
-        "rejectNonStandardBodyWrites",
-      ] as const)
-        if (options[key] !== undefined)
-          validateType(options[key], "boolean", key);
-      this.requireHostHeader = options.requireHostHeader ?? true;
-      this.joinDuplicateHeaders = options.joinDuplicateHeaders ?? false;
-      this.rejectNonStandardBodyWrites =
-        options.rejectNonStandardBodyWrites ?? false;
-      if (options.highWaterMark !== undefined) {
-        validateType(options.highWaterMark, "number", "highWaterMark");
-        if (options.highWaterMark > 0)
-          this.highWaterMark = options.highWaterMark;
-      }
-      if (options.IncomingMessage)
-        this.IncomingMessageClass =
-          options.IncomingMessage as unknown as typeof IncomingMessage;
-      if (options.ServerResponse)
-        this.ServerResponseClass =
-          options.ServerResponse as unknown as typeof ServerResponse;
+    if (options != null) storeHTTPOptions.call(this, options);
+    const values = options as ServerOptions | undefined;
+    if (values?.highWaterMark !== undefined) {
+      validateNumber(values.highWaterMark, "options.highWaterMark");
+      if (values.highWaterMark > 0) this.highWaterMark = values.highWaterMark;
+    }
+    if (typeof options === "function") {
+      listener = options;
+      options = {};
+    } else if (options == null) {
+      options = {};
+    } else {
+      validateObject(options, "options");
     }
     if (listener) this.on("request", listener);
+    this[kUniqueHeaders] = parseUniqueHeadersOption(options.uniqueHeaders);
   }
   [captureRejection](
     error: unknown,
@@ -1074,8 +1057,8 @@ export class Server extends EventEmitter {
     setHandler(port, {
       server: this,
       createRequestResponse: () => ({
-        IncomingMessage: this.IncomingMessageClass,
-        ServerResponse: this.ServerResponseClass,
+        IncomingMessage: this[kIncomingMessage],
+        ServerResponse: this[kServerResponse],
       }),
     });
     const callback =
@@ -1168,20 +1151,9 @@ export class Agent extends EventEmitter {
     this.maxSockets = this.options.maxSockets || Agent.defaultMaxSockets;
     this.maxFreeSockets = this.options.maxFreeSockets || 256;
     this.scheduling = this.options.scheduling || "lifo";
-    if (!(["fifo", "lifo"] as unknown[]).includes(this.scheduling))
-      throw coded(
-        new TypeError("options.scheduling is invalid"),
-        "ERR_INVALID_ARG_VALUE",
-      );
+    validateOneOf(this.scheduling, "scheduling", ["fifo", "lifo"]);
     const maximum = this.options.maxTotalSockets;
-    if (maximum !== undefined) {
-      validateNumber(maximum, "maxTotalSockets");
-      if (Number.isNaN(maximum) || maximum < 1)
-        throw coded(
-          new RangeError("maxTotalSockets is out of range"),
-          "ERR_OUT_OF_RANGE",
-        );
-    }
+    if (maximum !== undefined) validateNumber(maximum, "maxTotalSockets", 1);
     this.maxTotalSockets = maximum === undefined ? Infinity : maximum;
   }
   createConnection() {
@@ -1231,8 +1203,7 @@ export class ClientRequest extends OutgoingMessage {
   timeout?: number;
   _ended = false;
   private abortController = new AbortController();
-  private upload?: TransformStream<Uint8Array, Uint8Array>;
-  private uploadWriter?: WritableStreamDefaultWriter<Uint8Array>;
+  private upload: Uint8Array[] = [];
   private response?: IncomingMessage;
   private timer?: ReturnType<typeof setTimeout>;
   private sent = false;
@@ -1375,13 +1346,12 @@ export class ClientRequest extends OutgoingMessage {
         `Basic ${Buffer.from(values.auth).toString("base64")}`,
       );
     if (values.signal) {
-      if (values.signal.aborted) this.destroy(values.signal.reason);
-      else
-        values.signal.addEventListener(
-          "abort",
-          () => this.destroy(values.signal!.reason),
-          { once: true },
+      const onAbort = () =>
+        this.destroy(
+          new AbortError(undefined, { cause: values.signal!.reason }),
         );
+      if (values.signal.aborted) onAbort();
+      else values.signal.addEventListener("abort", onAbort, { once: true });
     }
     if (values.timeout !== undefined) this.setTimeout(values.timeout);
     if (callback) this.once("response", callback);
@@ -1397,7 +1367,11 @@ export class ClientRequest extends OutgoingMessage {
     encoding?: unknown,
     callback?: unknown,
   ): boolean {
-    return super.write(chunk, encoding, callback);
+    return super.write(
+      chunk instanceof Uint8Array ? Buffer.from(chunk) : chunk,
+      encoding,
+      callback,
+    );
   }
   override _write(
     chunk: Buffer | string | Uint8Array,
@@ -1408,36 +1382,13 @@ export class ClientRequest extends OutgoingMessage {
       callback();
       return;
     }
-    try {
-      if (!this.upload) {
-        this.upload = new TransformStream<Uint8Array, Uint8Array>();
-        this.uploadWriter = this.upload.writable.getWriter();
-      }
-      this.#send();
-      void this.uploadWriter!.write(Buffer.from(chunk as never, encoding)).then(
-        () => callback(),
-        (error) => {
-          this.destroy(error);
-          callback(error);
-        },
-      );
-    } catch (error) {
-      this.destroy(error as Error);
-      callback(error as Error);
-    }
+    this.upload.push(Buffer.from(chunk as never, encoding));
+    callback();
   }
   override _final = (callback: (error?: Error | null) => void) => {
     try {
       this.#send();
-      if (this.uploadWriter)
-        void this.uploadWriter.close().then(
-          () => callback(),
-          (error) => {
-            this.destroy(error);
-            callback(error);
-          },
-        );
-      else callback();
+      callback();
     } catch (error) {
       this.destroy(error as Error);
       callback(error as Error);
@@ -1445,11 +1396,6 @@ export class ClientRequest extends OutgoingMessage {
   };
   override flushHeaders = () => {
     super.flushHeaders();
-    if (this.method !== "GET" && this.method !== "HEAD" && !this.upload) {
-      this.upload = new TransformStream<Uint8Array, Uint8Array>();
-      this.uploadWriter = this.upload.writable.getWriter();
-    }
-    this.#send();
   };
   #send() {
     if (this.destroyed || this.sent) return;
@@ -1482,7 +1428,9 @@ export class ClientRequest extends OutgoingMessage {
           : value
         : [value])
         headers.push([name, String(item)]);
-    const body = this.upload?.readable ?? null;
+    const body = this.upload.length
+      ? new Blob(this.upload as BlobPart[])
+      : null;
     const response = missingHost
       ? Promise.resolve(
           new Response(null, {
@@ -1564,10 +1512,8 @@ export class ClientRequest extends OutgoingMessage {
       this.destroy(coded(new Error("The operation was aborted"), "ABORT_ERR"));
     }, this.timeout);
   }
-  #releaseUpload(error = new Error("Request closed")) {
-    void this.uploadWriter?.abort(error).catch(() => {});
-    this.uploadWriter = undefined;
-    this.upload = undefined;
+  #releaseUpload(_error?: Error) {
+    this.upload = [];
   }
   #emitClose() {
     if (!this._closed) {
@@ -1638,8 +1584,7 @@ export function setMaxIdleHTTPParsers(max: unknown): never {
 export function _connectionListener(): never {
   throw notImplemented("_connectionListener");
 }
-export const WebSocket = globalThis.WebSocket;
-export const CloseEvent = globalThis.CloseEvent;
+export { WebSocket, CloseEvent };
 export const MessageEvent = globalThis.MessageEvent;
 
 export default {

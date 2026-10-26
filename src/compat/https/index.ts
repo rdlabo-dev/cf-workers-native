@@ -13,7 +13,8 @@ type ClientRequest = InstanceType<typeof ClientRequest>;
 import { Agent, globalAgent } from "./agent.js";
 import { ERR_METHOD_NOT_IMPLEMENTED } from "./errors.js";
 import { Server } from "./server.js";
-import type { IncomingMessageCallback } from "node-internal:internal_http_util";
+import type { IncomingMessage } from "node:http";
+type IncomingMessageCallback = (message: IncomingMessage) => void;
 import type { RequestOptions, RequestListener } from "node:http";
 import type { ServerOptions } from "node:https";
 
@@ -55,9 +56,14 @@ export function get(
   return req;
 }
 
+export function createServer(handler?: RequestListener): Server;
 export function createServer(
   options: ServerOptions,
-  handler: RequestListener,
+  handler?: RequestListener,
+): Server;
+export function createServer(
+  options?: ServerOptions | RequestListener,
+  handler?: RequestListener,
 ): Server {
   if (!enableNodejsHttpServerModules) {
     throw new ERR_METHOD_NOT_IMPLEMENTED("createServer");

@@ -143,6 +143,12 @@ export function compatibilityAliases(): Record<string, string> {
       stdlib.process,
     ),
     "cloudflare:node": workersModulePath("cloudflare-node"),
+    "cf-workers-native:response": fileURLToPath(
+      new URL("../browser/response/index.js", import.meta.url),
+    ),
+    "cf-workers-native:headers": fileURLToPath(
+      new URL("../browser/headers/index.js", import.meta.url),
+    ),
     "cloudflare:workers": workersModulePath("cloudflare-workers"),
     "punycode/": polyfill("punycode/punycode.js"),
     "util/util.js": polyfill("util/util.js"),
@@ -160,6 +166,10 @@ export function commonJSCompatibilityAliases(): Record<string, string> {
 export function compatibilityDependencies(): string[] {
   return [
     processStatePath,
+    // The HTTP bridge and runtime response checks must share Fetch brands in
+    // Vite dev, including when cloudflare:node is dependency-prebundled.
+    "cf-workers-native:response",
+    "cf-workers-native:headers",
     "cloudflare:node",
     "cloudflare:workers",
     ...Object.keys(builtinAliases()),

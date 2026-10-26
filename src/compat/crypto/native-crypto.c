@@ -1,9 +1,11 @@
 // OpenSSL bridge owned by cf-workers-native (MIT).
 #include <emscripten/emscripten.h>
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <openssl/ec.h>
+#include <openssl/dh.h>
 #include <openssl/ecdsa.h>
 #include <openssl/err.h>
 #include <openssl/provider.h>
@@ -53,7 +55,7 @@ API void wk_key_free(EVP_PKEY *key) { EVP_PKEY_free(key); }
 API const char *wk_key_type(EVP_PKEY *key) { return EVP_PKEY_get0_type_name(key); }
 API int wk_key_bits(EVP_PKEY *key) { return EVP_PKEY_get_bits(key); }
 API int wk_key_equal(EVP_PKEY *a,EVP_PKEY *b) { return EVP_PKEY_eq(a,b); }
-API int wk_key_export(EVP_PKEY *key,int private_key,int pem,int type,const char *cipher_name,const char *password,int password_length) {
+API int wk_key_export(EVP_PKEY *key,int private_key,int pem,int type,const char *cipher_name,const char *password,int password_length,int ec_encoding) {
   ERR_clear_error();BIO *bio=BIO_new(BIO_s_mem());if(!bio)return 0;
   const EVP_CIPHER *cipher=cipher_name && *cipher_name?EVP_get_cipherbyname(cipher_name):NULL;
   if(cipher_name && *cipher_name && !cipher){BIO_free(bio);return 0;}
@@ -61,7 +63,7 @@ API int wk_key_export(EVP_PKEY *key,int private_key,int pem,int type,const char 
   if(private_key) {
     if(type==0) ok=pem?PEM_write_bio_PKCS8PrivateKey(bio,key,cipher,(char *)password,password_length,NULL,NULL):i2d_PKCS8PrivateKey_bio(bio,key,cipher,(char *)password,password_length,NULL,NULL);
     else if(type==1) {RSA *rsa=EVP_PKEY_get1_RSA(key);if(rsa){ok=pem?PEM_write_bio_RSAPrivateKey(bio,rsa,cipher,(const unsigned char *)password,password_length,NULL,NULL):i2d_RSAPrivateKey_bio(bio,rsa);RSA_free(rsa);}}
-    else if(type==2) {EC_KEY *ec=EVP_PKEY_get1_EC_KEY(key);if(ec){ok=pem?PEM_write_bio_ECPrivateKey(bio,ec,cipher,(const unsigned char *)password,password_length,NULL,NULL):i2d_ECPrivateKey_bio(bio,ec);EC_KEY_free(ec);}}
+    else if(type==2) {EC_KEY *ec=EVP_PKEY_get1_EC_KEY(key);if(ec){if(ec_encoding>=0)EC_KEY_set_enc_flags(ec,ec_encoding);ok=pem?PEM_write_bio_ECPrivateKey(bio,ec,cipher,(const unsigned char *)password,password_length,NULL,NULL):i2d_ECPrivateKey_bio(bio,ec);EC_KEY_free(ec);}}
   } else {
     if(type==1) {RSA *rsa=EVP_PKEY_get1_RSA(key);if(rsa){ok=pem?PEM_write_bio_RSAPublicKey(bio,rsa):i2d_RSAPublicKey_bio(bio,rsa);RSA_free(rsa);}}
     else ok=pem?PEM_write_bio_PUBKEY(bio,key):i2d_PUBKEY_bio(bio,key);
@@ -76,6 +78,14 @@ API EVP_PKEY *wk_key_generate(const char *type,int bits,const char *curve,unsign
   if(ok && (!strcmp(type,"EC") || !strcmp(type,"DH")))ok=EVP_PKEY_CTX_set_group_name(ctx,curve)>0;
   if(ok)ok=EVP_PKEY_generate(ctx,&key)>0;
   EVP_PKEY_CTX_free(ctx);if(!ok){EVP_PKEY_free(key);return NULL;}return key;
+}
+API EVP_PKEY *wk_key_generate_dh(const unsigned char *prime,int length,unsigned long generator,const unsigned char *components) {
+ ERR_clear_error();BIGNUM *p=BN_bin2bn(prime,length,NULL),*g=BN_new(),*pub=BN_bin2bn(components,length,NULL),*priv=BN_bin2bn(components+length,length,NULL);
+ DH *dh=DH_new();EVP_PKEY *key=NULL;
+ if(!p || !g || !pub || !priv || !dh || !BN_set_word(g,generator) || !DH_set0_pqg(dh,p,NULL,g))goto done;
+ p=NULL;g=NULL;if(!DH_set0_key(dh,pub,priv))goto done;pub=NULL;priv=NULL;
+ key=EVP_PKEY_new();if(!key || !EVP_PKEY_assign_DH(key,dh)){EVP_PKEY_free(key);key=NULL;goto done;}dh=NULL;
+ done: DH_free(dh);BN_free(p);BN_free(g);BN_free(pub);BN_clear_free(priv);return key;
 }
 static int signature_width(EVP_PKEY *key) {
   if(EVP_PKEY_is_a(key,"EC"))return (EVP_PKEY_get_bits(key)+7)/8;
@@ -112,7 +122,7 @@ API int wk_verify(EVP_PKEY *key,const char *digest,const unsigned char *data,siz
     int length=i2d_ECDSA_SIG(value,&converted);ECDSA_SIG_free(value);if(length<=0){EVP_MD_CTX_free(ctx);return -1;}
     signature=converted;signature_length=(size_t)length;
   }
-  int result=ok?EVP_DigestVerify(ctx,signature,signature_length,data,length):-1;OPENSSL_free(converted);EVP_MD_CTX_free(ctx);return result;
+  int result=ok?(EVP_DigestVerify(ctx,signature,signature_length,data,length)==1?1:0):-1;OPENSSL_free(converted);EVP_MD_CTX_free(ctx);return result;
 }
 
 API int wk_derive(EVP_PKEY *key,EVP_PKEY *peer) {
@@ -145,14 +155,30 @@ API int wk_prime_generate(int bits,int safe,const unsigned char *add,int add_len
   BN_clear_free(a);BN_clear_free(r);BN_clear_free(prime);BN_CTX_free(ctx);return ok;
 }
 API EVP_MD_CTX *wk_digest_new(const char *algorithm) {
-  ERR_clear_error();const EVP_MD *md=EVP_get_digestbyname(algorithm);EVP_MD_CTX *ctx=EVP_MD_CTX_new();
+  ERR_clear_error();const EVP_MD *md=EVP_get_digestbyname(algorithm);
+  if(md && EVP_MD_type(md)==NID_md4){static int legacy_initialized=0;if(!legacy_initialized){OSSL_PROVIDER_load(NULL,"default");OSSL_PROVIDER_load(NULL,"legacy");legacy_initialized=1;}}
+  EVP_MD_CTX *ctx=EVP_MD_CTX_new();
   if(!md || !ctx || EVP_DigestInit_ex(ctx,md,NULL)!=1){EVP_MD_CTX_free(ctx);return NULL;}return ctx;
 }
+API EVP_MD_CTX *wk_digest_copy(EVP_MD_CTX *source) {EVP_MD_CTX *ctx=EVP_MD_CTX_new();if(!ctx || EVP_MD_CTX_copy_ex(ctx,source)!=1){EVP_MD_CTX_free(ctx);return NULL;}return ctx;}
+API int wk_digest_size(EVP_MD_CTX *ctx) {return EVP_MD_CTX_get_size(ctx);}
 API void wk_digest_free(EVP_MD_CTX *ctx) {EVP_MD_CTX_free(ctx);}
 API int wk_digest_update(EVP_MD_CTX *ctx,const unsigned char *data,size_t length) {return EVP_DigestUpdate(ctx,data,length);}
 API int wk_digest_final(EVP_MD_CTX *ctx) {
   unsigned int length=EVP_MAX_MD_SIZE;clear_output();output=OPENSSL_malloc(length);if(!output)return 0;
   output_length=length;if(EVP_DigestFinal_ex(ctx,output,&length)!=1){clear_output();return 0;}output_length=length;return 1;
+}
+API HMAC_CTX *wk_hmac_new(const char *algorithm,const unsigned char *key,int length) {
+ EVP_MD_CTX *check=wk_digest_new(algorithm);if(!check)return NULL;EVP_MD_CTX_free(check);
+ HMAC_CTX *ctx=HMAC_CTX_new();if(!ctx||HMAC_Init_ex(ctx,key,length,EVP_get_digestbyname(algorithm),NULL)!=1){HMAC_CTX_free(ctx);return NULL;}return ctx;
+}
+API void wk_hmac_free(HMAC_CTX *ctx){HMAC_CTX_free(ctx);}
+API int wk_hmac_update(HMAC_CTX *ctx,const unsigned char *data,size_t length){return HMAC_Update(ctx,data,length);}
+API int wk_hmac_final(HMAC_CTX *ctx){unsigned int length=EVP_MAX_MD_SIZE;clear_output();output=OPENSSL_malloc(length);if(!output)return 0;output_length=length;if(HMAC_Final(ctx,output,&length)!=1){clear_output();return 0;}output_length=length;return 1;}
+API int wk_pbkdf2(const unsigned char *password,int password_length,const unsigned char *salt,int salt_length,int iterations,int length,const char *algorithm){
+ EVP_MD_CTX *check=wk_digest_new(algorithm);if(!check)return 0;EVP_MD_CTX_free(check);
+ clear_output();output=OPENSSL_malloc(length?length:1);if(!output)return 0;output_length=length;
+ if(!PKCS5_PBKDF2_HMAC((const char*)password,password_length,salt,salt_length,iterations,EVP_get_digestbyname(algorithm),length,output)){clear_output();return 0;}return 1;
 }
 API int wk_sign_hash(EVP_PKEY *key,const char *digest,const unsigned char *data,size_t length,int padding,int saltlen) {
   ERR_clear_error();EVP_PKEY_CTX *ctx=EVP_PKEY_CTX_new(key,NULL);if(!ctx)return 0;
@@ -167,7 +193,7 @@ API int wk_verify_hash(EVP_PKEY *key,const char *digest,const unsigned char *dat
   int ok=EVP_PKEY_verify_init(ctx)>0 && EVP_PKEY_CTX_set_signature_md(ctx,EVP_get_digestbyname(digest))>0;
   if(ok && padding)ok=EVP_PKEY_CTX_set_rsa_padding(ctx,padding)>0;
   if(ok && padding==RSA_PKCS1_PSS_PADDING)ok=EVP_PKEY_CTX_set_rsa_pss_saltlen(ctx,saltlen)>0;
-  int result=ok?EVP_PKEY_verify(ctx,signature,signature_length,data,length):-1;EVP_PKEY_CTX_free(ctx);return result;
+  int result=ok?(EVP_PKEY_verify(ctx,signature,signature_length,data,length)==1?1:0):-1;EVP_PKEY_CTX_free(ctx);return result;
 }
 API EC_KEY *wk_ec_new(const char *curve) {return EC_KEY_new_by_curve_name(OBJ_sn2nid(curve));}
 API void wk_ec_free(EC_KEY *key) {EC_KEY_free(key);}
@@ -201,7 +227,14 @@ API int wk_rsa(EVP_PKEY *key,int operation,const unsigned char *data,size_t leng
  int status=-1;if(initialized<=0)goto done;
  const EVP_MD *digest=NULL;
  if(operation<2){digest=EVP_get_digestbyname(hash);if(!digest){status=-2;goto done;}}
+ /* Match BoringSSL's accepted padding set and operation restrictions. */
+ if((padding!=RSA_PKCS1_PADDING&&padding!=RSA_NO_PADDING&&padding!=RSA_PKCS1_OAEP_PADDING&&padding!=RSA_PKCS1_PSS_PADDING)||
+    (padding==RSA_PKCS1_PSS_PADDING&&operation!=2)||
+    (padding==RSA_PKCS1_OAEP_PADDING&&operation>=2)){status=-3;goto done;}
  if(EVP_PKEY_CTX_set_rsa_padding(ctx,padding)<=0){status=-3;goto done;}
+ /* Workers rejects malformed PKCS#1 ciphertext rather than returning OpenSSL's
+    implicit-rejection substitute plaintext. Keep successful decoding unchanged. */
+ if(operation==1&&padding==RSA_PKCS1_PADDING&&EVP_PKEY_CTX_ctrl_str(ctx,"rsa_pkcs1_implicit_rejection","0")<=0){status=-3;goto done;}
  if(digest && padding==RSA_PKCS1_OAEP_PADDING){
   if(EVP_PKEY_CTX_set_rsa_oaep_md(ctx,digest)!=1){status=-4;goto done;}
   if(EVP_PKEY_CTX_set_rsa_mgf1_md(ctx,digest)!=1){status=-5;goto done;}

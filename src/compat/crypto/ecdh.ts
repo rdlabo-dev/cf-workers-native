@@ -7,20 +7,27 @@ import { ERR_INVALID_ARG_TYPE } from "../net/errors.js";
 import { isArrayBufferView } from "../util/types/index.js";
 const cryptoImpl = { ECDHHandle: NativeECDH };
 const kHandle = Symbol("kHandle");
+export type ECDHFormat = "compressed" | "uncompressed" | "hybrid";
+type ECDHInput = string | ArrayBufferView;
 export interface ECDH {
-  [kHandle]: cryptoImpl.ECDHHandle;
+  [kHandle]: NativeECDH;
   computeSecret(
-    otherPublicKey: string | ArrayBufferView | ArrayBuffer,
-    inputEncoding?: string,
-    outputEncoding?: string,
-  ): Buffer | string;
-  generateKeys(encoding?: string, format?: string): Buffer | string;
-  getPrivateKey(encoding?: string): Buffer | string;
-  getPublicKey(encoding?: string, format?: string): Buffer | string;
-  setPrivateKey(
-    key: string | ArrayBufferView | ArrayBuffer,
-    encoding?: string,
-  ): void;
+    key: ECDHInput,
+    inputEncoding?: BufferEncoding,
+    outputEncoding?: undefined,
+  ): Buffer;
+  computeSecret(
+    key: ECDHInput,
+    inputEncoding: BufferEncoding | undefined,
+    outputEncoding: BufferEncoding,
+  ): string;
+  generateKeys(encoding?: undefined, format?: ECDHFormat): Buffer;
+  generateKeys(encoding: BufferEncoding, format?: ECDHFormat): string;
+  getPrivateKey(encoding?: undefined): Buffer;
+  getPrivateKey(encoding: BufferEncoding): string;
+  getPublicKey(encoding?: undefined, format?: ECDHFormat): Buffer;
+  getPublicKey(encoding: BufferEncoding, format?: ECDHFormat): string;
+  setPrivateKey(key: ECDHInput, encoding?: BufferEncoding): void;
 }
 
 export const ECDH = function (this: ECDH, curveName: string) {
@@ -32,6 +39,21 @@ export const ECDH = function (this: ECDH, curveName: string) {
   return this;
 } as unknown as {
   new (curveName: string): ECDH;
+  (curveName: string): ECDH;
+  convertKey(
+    key: ECDHInput,
+    curve: string,
+    inputEncoding?: BufferEncoding,
+    outputEncoding?: undefined,
+    format?: ECDHFormat,
+  ): Buffer;
+  convertKey(
+    key: ECDHInput,
+    curve: string,
+    inputEncoding: BufferEncoding | undefined,
+    outputEncoding: BufferEncoding,
+    format?: ECDHFormat,
+  ): string;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access

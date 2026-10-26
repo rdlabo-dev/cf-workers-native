@@ -26,6 +26,7 @@
 /* TODO: the following is adopted code, enabling linting one day */
 /* eslint-disable */
 
+import { viewBytes } from "../../shared/buffer-source.js";
 import { NativeX509 } from "./native-crypto.js";
 import {
   validateString,
@@ -120,9 +121,7 @@ export class X509Certificate {
         buffer,
       );
     }
-    const handle = NativeX509.parse(
-      new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength),
-    );
+    const handle = NativeX509.parse(viewBytes(buffer));
     if (handle == null) {
       throw new ERR_INVALID_ARG_VALUE(
         "buffer",

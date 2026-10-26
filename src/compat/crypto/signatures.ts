@@ -32,7 +32,6 @@ import {
   default as cryptoImpl,
   type SignHandle,
   type VerifyHandle,
-  type CreateAsymmetricKeyOptions,
 } from "./sign-handle.js";
 
 import { validateString } from "../net/validators.js";
@@ -49,19 +48,25 @@ import {
 } from "./sign-errors.js";
 
 import { Writable } from "../stream/writable.js";
+import type { Writable as WritableType, WritableOptions } from "node:stream";
+import type { RsaKeyOptions as CreateAsymmetricKeyOptions } from "./rsa.js";
 import { isArrayBufferView } from "../util/types/index.js";
 
-export interface SignOptions {}
-
-export interface Sign extends Writable {
+export interface SignOptions extends WritableOptions {}
+export interface Sign extends WritableType {
   [kHandle]: SignHandle;
-  update(data: any): void;
-  sign(privateKey: any): any;
+  update(data: string | ArrayBufferView, encoding?: BufferEncoding): this;
+  sign(privateKey: any, encoding?: undefined | "buffer"): Buffer;
+  sign(privateKey: any, encoding: BufferEncoding): string;
 }
-export interface Verify extends Writable {
+export interface Verify extends WritableType {
   [kHandle]: VerifyHandle;
-  update(data: any): void;
-  verify(publicKey: any, signature: any): any;
+  update(data: string | ArrayBufferView, encoding?: BufferEncoding): this;
+  verify(
+    publicKey: any,
+    signature: string | ArrayBuffer | SharedArrayBuffer | ArrayBufferView,
+    encoding?: BufferEncoding,
+  ): boolean;
 }
 
 const kHandle = Symbol("kHandle");
@@ -75,6 +80,7 @@ export const Sign = function (this: Sign, algorithm: string, options: any) {
   return this;
 } as any as {
   new (algorithm: string, options?: SignOptions): Sign;
+  (algorithm: string, options?: SignOptions): Sign;
 };
 Object.setPrototypeOf(Sign.prototype, Writable.prototype);
 Object.setPrototypeOf(Sign, Writable);
@@ -191,6 +197,7 @@ export const Verify = function (this: Verify, algorithm: string, options: any) {
   return this;
 } as any as {
   new (algorithm: string, options?: SignOptions): Verify;
+  (algorithm: string, options?: SignOptions): Verify;
 };
 Object.setPrototypeOf(Verify.prototype, Writable.prototype);
 Object.setPrototypeOf(Verify, Writable);
@@ -271,11 +278,11 @@ Verify.prototype.verify = function (
   );
 };
 
-export function createSign(algorithm: string, options: any) {
+export function createSign(algorithm: string, options?: SignOptions) {
   return new Sign(algorithm, options);
 }
 
-export function createVerify(algorithm: string, options: any) {
+export function createVerify(algorithm: string, options?: SignOptions) {
   return new Verify(algorithm, options);
 }
 
@@ -284,7 +291,18 @@ type VerifyCallback = (err: any, valid?: boolean) => void;
 
 export function sign(
   algorithm: string | null | undefined,
-  data: BufferSource,
+  data: ArrayBufferView,
+  options: any,
+): Buffer;
+export function sign(
+  algorithm: string | null | undefined,
+  data: ArrayBufferView,
+  options: any,
+  callback: SignCallback,
+): void;
+export function sign(
+  algorithm: string | null | undefined,
+  data: ArrayBufferView,
   options: any,
   callback?: SignCallback,
 ): Buffer | void {
@@ -346,9 +364,22 @@ export function sign(
 
 export function verify(
   algorithm: string | null | undefined,
-  data: BufferSource,
+  data: ArrayBufferView,
   options: any,
-  signature: BufferSource,
+  signature: ArrayBufferView,
+): boolean;
+export function verify(
+  algorithm: string | null | undefined,
+  data: ArrayBufferView,
+  options: any,
+  signature: ArrayBufferView,
+  callback: VerifyCallback,
+): void;
+export function verify(
+  algorithm: string | null | undefined,
+  data: ArrayBufferView,
+  options: any,
+  signature: ArrayBufferView,
   callback?: VerifyCallback,
 ): boolean | undefined {
   // Node.js allows the algorithm to be either undefined or null, in which

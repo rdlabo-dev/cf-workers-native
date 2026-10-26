@@ -9,9 +9,37 @@ import { build } from "esbuild";
 import { chromium, webkit } from "@playwright/test";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { workersCapacitorPlugin } from "../../../../dist/tooling/esbuild.js";
-import { eventCases } from "../../../../src/compat/expansion/index.spec.mjs";
+import { eventCases as allEventCases } from "../../../../src/compat/expansion/index.spec.mjs";
+
+import {
+  localBoundaryCases as allBoundaryCases,
+  localBoundaryExpected,
+} from "../../../../src/compat/expansion/boundaries.spec.mjs";
+const requestedCases = process.env.NODE_COMPAT_CASES?.split(",");
+if (requestedCases)
+  for (const name of requestedCases)
+    assert.ok(
+      Object.hasOwn(allEventCases, name) ||
+        Object.hasOwn(allBoundaryCases, name),
+      `Unknown compatibility case: ${name}`,
+    );
+const eventCases = requestedCases
+  ? Object.fromEntries(
+      requestedCases
+        .filter((name) => Object.hasOwn(allEventCases, name))
+        .map((name) => [name, allEventCases[name]]),
+    )
+  : allEventCases;
 
 const root = fileURLToPath(new URL("../../../..", import.meta.url));
+const boundaryCases = requestedCases
+  ? Object.fromEntries(
+      requestedCases
+        .filter((name) => Object.hasOwn(allBoundaryCases, name))
+        .map((name) => [name, allBoundaryCases[name]]),
+    )
+  : allBoundaryCases;
+const localCases = { ...eventCases, ...boundaryCases };
 const profile = JSON.parse(
   await readFile(new URL("exports.json", import.meta.url), "utf8"),
 ).profile;
@@ -24,25 +52,38 @@ assert.equal(
 );
 const runtime = new Miniflare(
   convertV4MiniflareOptions({
-    modules: true,
     compatibilityDate: profile.compatibilityDate,
-    script: `import * as tls from 'node:tls'; import * as streams from 'node:stream/web'; import * as module from 'node:module'; import * as httpCommon from 'node:_http_common'; import * as httpOutgoing from 'node:_http_outgoing'; import * as httpServer from 'node:_http_server'; import * as http from 'node:http'; import * as fs from 'node:fs'; import * as zlib from 'node:zlib'; import * as sys from 'node:sys'; import * as util from 'node:util'; import * as types from 'node:util/types'; import * as console from 'node:console'; import * as crypto from 'node:crypto';
+    modulesRoot: "/fixture",
+    modules: [
+      {
+        type: "ESModule",
+        path: "/fixture/main.mjs",
+        contents: `import * as tls from 'node:tls'; import * as classicStreams from 'node:stream'; import * as streams from 'node:stream/web'; import * as module from 'node:module'; import * as httpCommon from 'node:_http_common'; import * as httpOutgoing from 'node:_http_outgoing'; import * as httpServer from 'node:_http_server'; import * as http from 'node:http'; import * as cloudflareNode from 'cloudflare:node'; import * as fs from 'node:fs'; import * as zlib from 'node:zlib'; import * as sys from 'node:sys'; import * as util from 'node:util'; import * as types from 'node:util/types'; import * as console from 'node:console'; import * as crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import process from 'node:process';
 const cases = {${Object.entries(eventCases)
-      .map(([name, fn]) => `${JSON.stringify(name)}: (${fn.toString()})`)
-      .join(",")}};
+          .map(([name, fn]) => `${JSON.stringify(name)}: (${fn.toString()})`)
+          .join(",")}};
 export default {async fetch(request) {
  const name = new URL(request.url).pathname.slice(1);
- return Response.json(await cases[name]({process, tls, streams, sys, util, types, console, crypto, fs, zlib, module, httpCommon, httpOutgoing, httpServer, http}));
+ return Response.json(await cases[name]({process, tls, classicStreams, streams, sys, util, types, console, crypto, fs, zlib, module, httpCommon, httpOutgoing, httpServer, http, cloudflareNode}));
 }};`,
+      },
+      { type: "Text", path: "/fixture/readonly.txt", contents: "abcdef" },
+      { type: "Text", path: "/fixture/nested/child.txt", contents: "child" },
+    ],
   }),
 );
 const baseline = {};
 try {
   for (const name of Object.keys(eventCases)) {
+    console.log(`Workers baseline: ${name}`);
     const response = await runtime.dispatchFetch(
       `https://events.invalid/${name}`,
+      // Crypto contracts can occupy workerd longer than the transport's idle
+      // keep-alive window. Each independent oracle request uses a fresh
+      // connection; never retry or substitute a failed contract result.
+      { headers: { Connection: "close" } },
     );
     assert.equal(
       response.status,
@@ -54,7 +95,12 @@ try {
 } finally {
   await runtime.dispose();
 }
-const output = new URL("../../../artifacts/node-inventory/", import.meta.url);
+const output = new URL(
+  requestedCases
+    ? "../../../artifacts/node-inventory/targeted/"
+    : "../../../artifacts/node-inventory/",
+  import.meta.url,
+);
 await mkdir(output, { recursive: true });
 await writeFile(
   new URL("expansion-contracts-workerd.json", output),
@@ -64,11 +110,13 @@ const compiled = await build({
   absWorkingDir: root,
   stdin: {
     resolveDir: root,
-    contents: `import * as tls from 'node:tls'; import * as streams from 'node:stream/web'; import * as module from 'node:module'; import * as httpCommon from 'node:_http_common'; import * as httpOutgoing from 'node:_http_outgoing'; import * as httpServer from 'node:_http_server'; import * as http from 'node:http'; import * as fs from 'node:fs'; import * as zlib from 'node:zlib'; import * as sys from 'node:sys'; import * as util from 'node:util'; import * as types from 'node:util/types'; import * as console from 'node:console'; import * as crypto from 'node:crypto';
-import { eventCases } from './src/compat/expansion/index.spec.mjs';
+    contents: `import * as tls from 'node:tls'; import * as classicStreams from 'node:stream'; import * as streams from 'node:stream/web'; import * as module from 'node:module'; import * as httpCommon from 'node:_http_common'; import * as httpOutgoing from 'node:_http_outgoing'; import * as httpServer from 'node:_http_server'; import * as http from 'node:http'; import * as cloudflareNode from 'cloudflare:node'; import * as fs from 'node:fs'; import * as zlib from 'node:zlib'; import * as sys from 'node:sys'; import * as util from 'node:util'; import * as types from 'node:util/types'; import * as console from 'node:console'; import * as crypto from 'node:crypto';
+import { eventCases } from './src/compat/expansion/index.spec.mjs'; import {localBoundaryCases} from './src/compat/expansion/boundaries.spec.mjs';
+import { runWithRequestScope as withRequestScope } from './dist/shared/request-scope.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import process from 'node:process';
-export const run = name => eventCases[name]({process, tls, streams, sys, util, types, console, crypto, fs, zlib, module, httpCommon, httpOutgoing, httpServer, http});`,
+fs.registerVirtualFiles({'/bundle/readonly.txt':'abcdef','/bundle/nested/child.txt':'child'});
+export const run = name => (eventCases[name] ?? localBoundaryCases[name])({withRequestScope,process, tls, classicStreams, streams, sys, util, types, console, crypto, fs, zlib, module, httpCommon, httpOutgoing, httpServer, http, cloudflareNode});`,
   },
   bundle: true,
   platform: "browser",
@@ -85,11 +133,14 @@ export const run = name => eventCases[name]({process, tls, streams, sys, util, t
 const entry = fileURLToPath(new URL("expansion-vite-entry.mjs", output));
 await writeFile(
   entry,
-  `import * as tls from 'node:tls'; import * as streams from 'node:stream/web'; import * as module from 'node:module'; import * as httpCommon from 'node:_http_common'; import * as httpOutgoing from 'node:_http_outgoing'; import * as httpServer from 'node:_http_server'; import * as http from 'node:http'; import * as fs from 'node:fs'; import * as zlib from 'node:zlib'; import * as sys from 'node:sys'; import * as util from 'node:util'; import * as types from 'node:util/types'; import * as console from 'node:console'; import * as crypto from 'node:crypto';
+  `import * as tls from 'node:tls'; import * as classicStreams from 'node:stream'; import * as streams from 'node:stream/web'; import * as module from 'node:module'; import * as httpCommon from 'node:_http_common'; import * as httpOutgoing from 'node:_http_outgoing'; import * as httpServer from 'node:_http_server'; import * as http from 'node:http'; import * as cloudflareNode from 'cloudflare:node'; import * as fs from 'node:fs'; import * as zlib from 'node:zlib'; import * as sys from 'node:sys'; import * as util from 'node:util'; import * as types from 'node:util/types'; import * as console from 'node:console'; import * as crypto from 'node:crypto';
 import { eventCases } from ${JSON.stringify(fileURLToPath(new URL("../../../../src/compat/expansion/index.spec.mjs", import.meta.url)))};
+import {localBoundaryCases} from ${JSON.stringify(fileURLToPath(new URL("../../../../src/compat/expansion/boundaries.spec.mjs", import.meta.url)))};
+import { runWithRequestScope as withRequestScope } from ${JSON.stringify(fileURLToPath(new URL("../../../../dist/shared/request-scope.js", import.meta.url)))};
 import { AsyncLocalStorage } from 'node:async_hooks';
 import process from 'node:process';
-export const run = name => eventCases[name]({process, tls, streams, sys, util, types, console, crypto, fs, zlib, module, httpCommon, httpOutgoing, httpServer, http});`,
+fs.registerVirtualFiles({'/bundle/readonly.txt':'abcdef','/bundle/nested/child.txt':'child'});
+export const run = name => (eventCases[name] ?? localBoundaryCases[name])({withRequestScope,process, tls, classicStreams, streams, sys, util, types, console, crypto, fs, zlib, module, httpCommon, httpOutgoing, httpServer, http, cloudflareNode});`,
 );
 const viteResult = await viteBuild({
   configFile: false,
@@ -126,7 +177,7 @@ for (const [builder, source] of Object.entries({
         const browser = await launcher.launch();
         const results = {};
         try {
-          for (const name of Object.keys(eventCases)) {
+          for (const name of Object.keys(localCases)) {
             await t.test(name, { timeout: 15000 }, async () => {
               const page = await browser.newPage();
               await page.route("http://localhost/", (route) =>
@@ -186,7 +237,12 @@ for (const [builder, source] of Object.entries({
                   { source, name, mode },
                 );
                 results[name] = result;
-                assert.deepEqual(result, baseline[name]);
+                assert.deepEqual(
+                  result,
+                  Object.hasOwn(boundaryCases, name)
+                    ? localBoundaryExpected[name]
+                    : baseline[name],
+                );
               } finally {
                 await page.close();
               }
@@ -206,6 +262,7 @@ for (const [builder, source] of Object.entries({
                 engine,
                 mode,
                 status: "webview-profile-operation-contracts",
+                localBoundaryCases: Object.keys(boundaryCases),
                 knownGaps: {
                   process:
                     "existing partial process profile; native stack inspection remains engine-dependent",

@@ -1,4 +1,5 @@
 // Adapted from pinned workerd crypto_random.ts (Apache-2.0 / Node MIT).
+import { bufferBytes, viewBytes } from "../../shared/buffer-source.js";
 import { Buffer } from "node:buffer";
 import {
   validateObject,
@@ -7,12 +8,11 @@ import {
   validateInt32,
 } from "../net/validators.js";
 import { ERR_INVALID_ARG_TYPE, ERR_OUT_OF_RANGE } from "../net/errors.js";
-import { isAnyArrayBuffer, isArrayBufferView } from "../util/types/index.js";
+import { isAnyBuffer as isAnyArrayBuffer } from "./validation.js";
+const isArrayBufferView = ArrayBuffer.isView;
 import { nativePrimeCheck, nativePrimeGenerate } from "./native-crypto.js";
 function view(value: any): Uint8Array {
-  return ArrayBuffer.isView(value)
-    ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-    : new Uint8Array(value);
+  return ArrayBuffer.isView(value) ? viewBytes(value) : bufferBytes(value);
 }
 function arrayBufferToUnsignedBigInt(value: any): bigint {
   const hex = Buffer.from(view(value)).toString("hex");

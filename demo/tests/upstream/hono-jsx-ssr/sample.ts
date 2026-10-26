@@ -41,6 +41,6 @@ const hono = JSON.parse(
 assert.equal(
   hono.version,
   metadata.dependencies.hono,
-  "Update the sample pin and demo lockfile together",
+  "Update the sample pin and demo dependency together",
 );
 export const workerEntry = join(clone, metadata.subdirectory, metadata.entry);

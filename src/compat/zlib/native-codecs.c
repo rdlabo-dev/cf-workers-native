@@ -24,6 +24,7 @@ API size_t z_process(void* ctx, int encode, const void* src, size_t len, void* d
 }
 API int z_is_error(size_t code) { return ZSTD_isError(code); }
 API const char* z_error(size_t code) { return ZSTD_getErrorName(code); }
+API size_t z_size64(void* ctx, uint32_t low, uint32_t high) { return ZSTD_CCtx_setPledgedSrcSize(ctx, ((uint64_t)high << 32) | low); }
 API size_t z_size(void* ctx, uint32_t length) { return ZSTD_CCtx_setPledgedSrcSize(ctx, length); }
 
 API void* b_create(int encode) { return encode ? (void*)BrotliEncoderCreateInstance(NULL, NULL, NULL) : (void*)BrotliDecoderCreateInstance(NULL, NULL, NULL); }

@@ -12,6 +12,7 @@ export async function nativeBackend({
   dispose,
   instrument = () => true,
   tlsDirectory,
+  onReport = () => {},
 }) {
   const directory =
     tlsDirectory ?? (await mkdtemp(join(tmpdir(), "native-acceptance-")));
@@ -51,7 +52,9 @@ export async function nativeBackend({
         const chunks = [];
         for await (const chunk of req) chunks.push(chunk);
         if (req.url === "/__acceptance/report") {
-          reports.push(JSON.parse(Buffer.concat(chunks).toString()));
+          const report = JSON.parse(Buffer.concat(chunks).toString());
+          reports.push(report);
+          onReport(report);
           res.end("ok");
           return;
         }
