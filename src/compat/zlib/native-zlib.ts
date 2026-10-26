@@ -1,3 +1,4 @@
+/// <reference path="./wasm.d.ts" />
 import binary from "./native-zlib.wasm";
 export type API = Record<string, (...args: number[]) => number> & {
   memory: WebAssembly.Memory;

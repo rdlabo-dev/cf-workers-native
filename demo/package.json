@@ -59,7 +59,7 @@
     "@capacitor/core": "^8.5.3",
     "cf-workers-native": "file:..",
     "express": "^5.3.0",
-    "hono": "^4.13.13"
+    "hono": "4.13.13"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.3",

@@ -11,6 +11,7 @@ on:
       - "package.json"
       - "src/**"
       - "demo/tests/native-embedding/**"
+      - "demo/tests/native/android-socket-eof/**"
   workflow_dispatch:
 
 permissions:
@@ -74,6 +75,8 @@ jobs:
           node --test scripts/android-release/publish.test.mjs
           python3 scripts/android-release/verify.py
           demo/android/gradlew -p demo/tests/native-embedding/android -PsdkRepository="$GITHUB_WORKSPACE/scripts/android-release/build/repository" :app:assembleDebug --console=plain
+      - name: Verify TLS inbound EOF ordering
+        run: python3 demo/tests/native/android-socket-eof/run.py
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

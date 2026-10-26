@@ -37,7 +37,7 @@ final class WorkerSockets {
         Result reading, watching, upgrading;
         String host; int port;
         int count, offset;
-        boolean ready, closed, eof, ended, writing, reset, encrypted, closeNotify;
+        boolean ready, closed, eof, ended, writing, reset, encrypted, closeNotify, inboundEndQueued;
         Connection(String id, Result opening) { this.id=id; this.opening=opening; }
         void fail(String message) {
             if (closed) return;
@@ -53,6 +53,19 @@ final class WorkerSockets {
             if(watching!=null) { Result pending=watching; watching=null; if(reset) pending.resolve(null); else pending.reject(message); }
             chunks.clear();
             if(channel!=null) channel.close();
+        }
+        void finishInbound(ChannelHandlerContext context) {
+            if(inboundEndQueued || eof || closed) return;
+            inboundEndQueued=true;
+            // SslHandler can complete its close future during a reentrant
+            // unwrap, before the enclosing decode delivers its plaintext.
+            // Publish EOF only after the current pipeline dispatch unwinds;
+            // queued data must be drained before read/watch observe the end.
+            context.executor().execute(() -> {
+                inboundEndQueued=false;
+                if(closed) return;
+                eof=true; drain(); notifyEnd();
+            });
         }
         void notifyEnd() {
             if(eof && chunks.isEmpty() && watching!=null) { Result pending=watching; watching=null; pending.resolve(null); }
@@ -79,13 +92,13 @@ final class WorkerSockets {
         @Override public void userEventTriggered(ChannelHandlerContext context,Object event) {
             if(event instanceof SslCloseCompletionEvent) {
                 SslCloseCompletionEvent tlsClose=(SslCloseCompletionEvent)event;
-                if(tlsClose.isSuccess()) { closeNotify=true; eof=true; drain(); notifyEnd(); }
+                if(tlsClose.isSuccess()) { closeNotify=true; finishInbound(context); }
                 else if(ready && encrypted && !closed) { fail("TLS connection closed without close_notify"); return; }
                 context.fireUserEventTriggered(event);
             } else if(event instanceof ChannelInputShutdownEvent) {
                 if(!ready || upgrading!=null) { fail("TLS connection closed before handshake completed"); return; }
                 if(encrypted && !closeNotify) { fail("TLS connection closed without close_notify"); return; }
-                eof=true; drain(); notifyEnd();
+                finishInbound(context);
             }
             else context.fireUserEventTriggered(event);
         }
@@ -93,14 +106,14 @@ final class WorkerSockets {
             if(!closed) {
                 if(!ready || upgrading!=null) { fail("Socket closed before handshake completed"); return; }
                 if(encrypted && !closeNotify) { fail("TLS connection closed without close_notify"); return; }
-                eof=true; drain(); notifyEnd();
+                finishInbound(context);
             }
         }
         @Override public void exceptionCaught(ChannelHandlerContext context,Throwable error) {
             boolean peerReset = error instanceof java.io.IOException && String.valueOf(error.getMessage()).toLowerCase(java.util.Locale.ROOT).contains("reset");
             // Workers' plain TCP reset-as-EOF behavior must not turn a truncated
             // authenticated TLS stream into a successful end.
-            if(encrypted && peerReset && closeNotify) { eof=true; drain(); notifyEnd(); return; }
+            if(encrypted && peerReset && closeNotify) { finishInbound(context); return; }
             reset = !encrypted && peerReset;
             fail(encrypted && peerReset ? "TLS connection closed without close_notify" : "Socket failed: "+error.getMessage());
         }
