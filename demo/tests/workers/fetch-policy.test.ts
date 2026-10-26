@@ -14,6 +14,9 @@ beforeAll(async () => {
   const bundle = await build({
     entryPoints: ["tests/fixtures/workers/compatibility/fetch-policy.ts"],
     external: ["brotli-dec-wasm/web/bg.wasm", "node:*", "cloudflare:node"],
+    // This fixture bundles implementation sources instead of the prebuilt npm
+    // package, so embed the native codec/TLS assets just as the package build does.
+    loader: { ".wasm": "binary" },
     bundle: true,
     format: "esm",
     target: "es2022",
