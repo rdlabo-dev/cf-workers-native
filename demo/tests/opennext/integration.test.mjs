@@ -193,13 +193,22 @@ test(
             ).writes,
             previous.writes,
           );
-          await page.getByLabel("Note", { exact: true }).fill("Updated note");
+          // The engines share this database. A previous engine's saved value
+          // must not satisfy the completion assertion before this POST finishes.
+          const updatedNote = `Updated note ${engine.name()}`;
+          await page.getByLabel("Note", { exact: true }).fill(updatedNote);
+          const saved = page.waitForResponse(
+            (response) =>
+              new URL(response.url()).pathname === "/api/notes" &&
+              response.request().method() === "POST",
+          );
           await page.getByRole("button", { name: "Save", exact: true }).click();
-          await expect(page.locator("#saved-note")).toHaveText("Updated note");
+          assert.equal((await saved).status(), 303);
+          await expect(page.locator("#saved-note")).toHaveText(updatedNote);
           const row = await backend.db
             .prepare("SELECT value, writes FROM notes WHERE owner = 'alice'")
             .first();
-          assert.equal(row.value, "Updated note");
+          assert.equal(row.value, updatedNote);
           assert.equal(row.writes, previous.writes + 1);
           const state = await context.storageState();
           await context.close();
