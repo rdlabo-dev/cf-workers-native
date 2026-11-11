@@ -5,6 +5,16 @@ on:
     tags: ["v*"]
   issue_comment:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      comment-id:
+        description: ID of the authorized /beta comment
+        required: true
+        type: string
+      head-sha:
+        description: PR head authorized by the comment workflow
+        required: true
+        type: string
   workflow_run:
     workflows: [Compatibility]
     types: [completed]
@@ -15,12 +25,18 @@ permissions:
 
 jobs:
   prepare:
-    if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && github.event.comment.body == '/beta')
+    if: >-
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      github.event.comment.body == '/beta' && github.run_attempt == '1') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      github.actor == 'github-actions[bot]') ||
+      github.event_name == 'push' || github.event_name == 'workflow_run'
     runs-on: ubuntu-24.04
     timeout-minutes: 70
     permissions:
       contents: read
       actions: read
+      issues: read
       pull-requests: read
     outputs:
       plan: ${{ steps.plan.outputs.result }}
@@ -43,18 +59,18 @@ jobs:
             const { resolveRelease } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/npm-release.mjs`);
             return await resolveRelease(github, context);
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.plan.outputs.result != 'null'
+        if: github.event_name != 'issue_comment' && steps.plan.outputs.result != 'null'
         with:
           repository: ${{ fromJSON(steps.plan.outputs.result).repository || github.repository }}
           ref: ${{ fromJSON(steps.plan.outputs.result).sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: steps.plan.outputs.result != 'null'
+        if: github.event_name != 'issue_comment' && steps.plan.outputs.result != 'null'
         with:
           node-version: 24
           package-manager-cache: false
       - name: Build the exact release candidate
-        if: steps.plan.outputs.result != 'null'
+        if: github.event_name != 'issue_comment' && steps.plan.outputs.result != 'null'
         env:
           VERSION: ${{ fromJSON(steps.plan.outputs.result).version }}
           DIST_TAG: ${{ fromJSON(steps.plan.outputs.result).channel }}
@@ -65,12 +81,34 @@ jobs:
           mkdir -p "$RUNNER_TEMP/npm-release"
           npm pack --pack-destination "$RUNNER_TEMP/npm-release"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.plan.outputs.result != 'null'
+        if: github.event_name != 'issue_comment' && steps.plan.outputs.result != 'null'
         with:
           name: npm-release
           path: ${{ runner.temp }}/npm-release/*.tgz
           if-no-files-found: error
           retention-days: 7
+
+  dispatch-comment-beta:
+    needs: prepare
+    if: github.event_name == 'issue_comment' && needs.prepare.outputs.plan != 'null'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          PLAN: ${{ needs.prepare.outputs.plan }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: 'release.yml',
+              ref: 'main',
+              inputs: {
+                'comment-id': String(context.payload.comment.id),
+                'head-sha': JSON.parse(process.env.PLAN).sha,
+              },
+            });
 
   publish:
     # Only authorized candidates enter the publication queue.
@@ -78,13 +116,14 @@ jobs:
       group: npm-release
       cancel-in-progress: false
     needs: prepare
-    if: needs.prepare.outputs.plan != 'null'
+    if: github.event_name != 'issue_comment' && needs.prepare.outputs.plan != 'null'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
       id-token: write
       actions: read
+      issues: read
       pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -131,5 +170,47 @@ jobs:
           assert.equal(pkg.publishConfig.access, 'public');
           assert.ok(!pkg.publishConfig.registry || pkg.publishConfig.registry === 'https://registry.npmjs.org');
           JS
-          DIST_TAG=$(node -p 'JSON.parse(process.env.PLAN).channel')
-          npm publish "${archives[0]}" --ignore-scripts --provenance --access public --tag "$DIST_TAG" --registry https://registry.npmjs.org
+          PACKAGE_ARCHIVE="${archives[0]}" node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { spawnSync } from 'node:child_process';
+          const { version: EXPECTED_VERSION, channel: DIST_TAG } = JSON.parse(process.env.PLAN);
+          const archives = new Map([['cf-workers-native', process.env.PACKAGE_ARCHIVE]]);
+          const isPublished = (spec, archive) => {
+            const existing = spawnSync('npm', ['view', spec, 'dist.integrity', '--json', '--prefer-online',
+              '--registry=https://registry.npmjs.org'], { encoding: 'utf8' });
+            if (existing.status === 0) {
+              const integrity = 'sha512-' + createHash('sha512').update(readFileSync(archive)).digest('base64');
+              assert.equal(JSON.parse(existing.stdout), integrity, `${spec} already exists with different contents`);
+              return true;
+            }
+            let error;
+            try { error = JSON.parse(existing.stdout).error; } catch {}
+            assert.equal(error?.code, 'E404', `Cannot check ${spec}: ${existing.stderr}`);
+            return false;
+          };
+          for (const [name, archive] of archives) {
+            const spec = `${name}@${EXPECTED_VERSION}`;
+            if (!isPublished(spec, archive)) {
+              const result = spawnSync('npm', ['publish', archive, '--ignore-scripts', '--provenance', '--access', 'public',
+                '--json', '--registry=https://registry.npmjs.org', '--tag', DIST_TAG], { encoding: 'utf8' });
+              process.stdout.write(result.stdout ?? '');
+              process.stderr.write(result.stderr ?? '');
+              if (result.status === 0) continue;
+              let code;
+              try { code = JSON.parse(result.stdout).error?.code; } catch {}
+              assert.equal(code, 'E409', `Publish failed for ${spec}`);
+              // Another release run can finish before the version is visible to npm view.
+              for (const delay of [0, 2000, 4000, 8000, 16000]) {
+                if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+                if (isPublished(spec, archive)) {
+                  code = undefined;
+                  break;
+                }
+              }
+              assert.equal(code, undefined, `Publish conflict for ${spec}: no matching public version became visible`);
+            }
+            console.log(`${spec} already published with matching contents; skipping.`);
+          }
+          JS

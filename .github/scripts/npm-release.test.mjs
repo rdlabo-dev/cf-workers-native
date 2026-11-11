@@ -249,3 +249,27 @@ test("GitHub maintain role is accepted even when the legacy permission is write"
   f.state.role = "maintain";
   assert.equal((await resolveRelease(f.github, f.context)).channel, "beta");
 });
+
+test("dispatch keeps the original authorized PR head", async () => {
+  const f = commentFixture();
+  const comment = {
+    ...f.context.payload.comment,
+    updated_at: f.context.payload.comment.created_at,
+    issue_url: "https://api.github.com/repos/rdlabo-dev/cf-workers-native/issues/43",
+  };
+  f.github.rest.issues = {
+    getComment: async ({ comment_id }) => {
+      assert.equal(comment_id, 123);
+      return { data: comment };
+    },
+  };
+  const original = await resolveRelease(f.github, f.context);
+  f.context.eventName = "workflow_dispatch";
+  f.context.payload = { inputs: { "comment-id": "123", "head-sha": sha } };
+  assert.deepEqual(await resolveRelease(f.github, f.context), original);
+  f.state.pr.head.sha = "b".repeat(40);
+  assert.equal(await isReleaseCurrent(f.github, f.context, original), false);
+  f.state.pr.head.sha = sha;
+  comment.updated_at = "2026-10-20";
+  await assert.rejects(resolveRelease(f.github, f.context), /no longer valid/);
+});

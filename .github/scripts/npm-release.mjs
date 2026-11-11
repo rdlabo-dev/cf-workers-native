@@ -19,7 +19,25 @@ export function releaseVersion(version, tag, pr, sha) {
 
 export async function resolveRelease(github, context) {
   if (context.eventName === "issue_comment")
-    return resolveCommentBeta(github, context);
+    return resolveCommentBeta(github, context.payload, context.repo);
+  if (context.eventName === "workflow_dispatch") {
+    const inputs = context.payload.inputs;
+    if (!/^[1-9]\d*$/.test(inputs?.["comment-id"]) ||
+        !/^[a-f0-9]{40}$/.test(inputs?.["head-sha"])) {
+      throw new Error("Invalid beta dispatch inputs");
+    }
+    const { data: comment } = await github.rest.issues.getComment({
+      ...context.repo,
+      comment_id: Number(inputs["comment-id"]),
+    });
+    const number = Number(comment.issue_url.match(/\/issues\/([1-9]\d*)$/)?.[1]);
+    if (!number || comment.updated_at !== comment.created_at) {
+      throw new Error("The original /beta comment is no longer valid");
+    }
+    return resolveCommentBeta(github, {
+      action: "created", issue: { number, pull_request: {} }, comment,
+    }, context.repo, inputs["head-sha"]);
+  }
   const repo = context.repo;
   const { data: main } = await github.rest.repos.getBranch({
     ...repo,
@@ -102,11 +120,10 @@ export async function resolveRelease(github, context) {
   return { sha, ...releaseVersion(pkg.version, tag, pr, sha) };
 }
 
-async function resolveCommentBeta(github, context) {
-  const { action, issue, comment } = context.payload;
+async function resolveCommentBeta(github, payload, repo, expectedSha) {
+  const { action, issue, comment } = payload;
   if (action !== "created" || !issue.pull_request || comment.body !== "/beta")
     return null;
-  const repo = context.repo;
   const { data: permission } =
     await github.rest.repos.getCollaboratorPermissionLevel({
       ...repo,
@@ -129,6 +146,7 @@ async function resolveCommentBeta(github, context) {
     !pr.head.repo
   )
     return null;
+  if (expectedSha && pr.head.sha !== expectedSha) return null;
   // A queued comment must not authorize code pushed after that comment.
   if (Date.parse(pr.updated_at) > Date.parse(comment.created_at)) {
     throw new Error(
