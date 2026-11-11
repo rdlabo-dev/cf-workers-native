@@ -22,21 +22,32 @@ export async function resolveRelease(github, context) {
     return resolveCommentBeta(github, context.payload, context.repo);
   if (context.eventName === "workflow_dispatch") {
     const inputs = context.payload.inputs;
-    if (!/^[1-9]\d*$/.test(inputs?.["comment-id"]) ||
-        !/^[a-f0-9]{40}$/.test(inputs?.["head-sha"])) {
+    if (
+      !/^[1-9]\d*$/.test(inputs?.["comment-id"]) ||
+      !/^[a-f0-9]{40}$/.test(inputs?.["head-sha"])
+    ) {
       throw new Error("Invalid beta dispatch inputs");
     }
     const { data: comment } = await github.rest.issues.getComment({
       ...context.repo,
       comment_id: Number(inputs["comment-id"]),
     });
-    const number = Number(comment.issue_url.match(/\/issues\/([1-9]\d*)$/)?.[1]);
+    const number = Number(
+      comment.issue_url.match(/\/issues\/([1-9]\d*)$/)?.[1],
+    );
     if (!number || comment.updated_at !== comment.created_at) {
       throw new Error("The original /beta comment is no longer valid");
     }
-    return resolveCommentBeta(github, {
-      action: "created", issue: { number, pull_request: {} }, comment,
-    }, context.repo, inputs["head-sha"]);
+    return resolveCommentBeta(
+      github,
+      {
+        action: "created",
+        issue: { number, pull_request: {} },
+        comment,
+      },
+      context.repo,
+      inputs["head-sha"],
+    );
   }
   const repo = context.repo;
   const { data: main } = await github.rest.repos.getBranch({
@@ -153,6 +164,36 @@ async function resolveCommentBeta(github, payload, repo, expectedSha) {
       "PR changed after /beta; post a fresh comment after CI passes",
     );
   }
+  let lastForcePush;
+  if (!expectedSha) {
+    const { repository } = await github.graphql(
+      `
+      query($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $number) {
+            headRefOid
+            timelineItems(last: 1, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]) {
+              nodes { ... on HeadRefForcePushedEvent { createdAt afterCommit { oid } } }
+            }
+          }
+        }
+      }
+    `,
+      { ...repo, number: issue.number },
+    );
+    const current = repository?.pullRequest;
+    if (
+      current?.headRefOid !== pr.head.sha ||
+      current.timelineItems.nodes.some(
+        (node) => Date.parse(node.createdAt) >= Date.parse(comment.created_at),
+      )
+    ) {
+      throw new Error(
+        "The PR head changed at or after /beta; post a fresh comment.",
+      );
+    }
+    [lastForcePush] = current.timelineItems.nodes;
+  }
   const files = await github.paginate(github.rest.pulls.listFiles, {
     ...repo,
     pull_number: issue.number,
@@ -180,7 +221,12 @@ async function resolveCommentBeta(github, payload, repo, expectedSha) {
     per_page: 100,
   });
   const latest = runs
-    .filter((run) => run.pull_requests.some((p) => p.number === pr.number))
+    .filter((run) =>
+      run.pull_requests?.length
+        ? run.pull_requests.some((p) => p.number === pr.number)
+        : run.head_repository?.full_name === pr.head.repo?.full_name &&
+          run.head_branch === pr.head.ref,
+    )
     .sort((a, b) => b.run_number - a.run_number)[0];
   if (
     !latest ||
@@ -197,9 +243,37 @@ async function resolveCommentBeta(github, payload, repo, expectedSha) {
   const pkg = JSON.parse(Buffer.from(file.content, "base64").toString("utf8"));
   if (pkg.name !== "cf-workers-native")
     throw new Error("Unexpected trusted package name");
+  if (
+    lastForcePush &&
+    lastForcePush.afterCommit?.oid !== sha &&
+    Date.parse(latest.created_at) <= Date.parse(lastForcePush.createdAt)
+  ) {
+    throw new Error(
+      "The candidate predates the last head rewind; post /beta after fresh CI",
+    );
+  }
+  const artifactName = `npm-beta-pr${pr.number}-${sha}-${latest.run_attempt}`;
+  const artifacts = await github.paginate(
+    github.rest.actions.listWorkflowRunArtifacts,
+    {
+      ...repo,
+      run_id: latest.id,
+      per_page: 100,
+    },
+  );
+  if (
+    !artifacts.some(
+      (artifact) => artifact.name === artifactName && !artifact.expired,
+    )
+  ) {
+    throw new Error(
+      "The immutable beta candidate is missing or expired; select Re-run all jobs in Compatibility, then post /beta again",
+    );
+  }
   return {
     sha,
-    repository: pr.head.repo.full_name,
+    candidateRunId: latest.id,
+    candidateArtifact: artifactName,
     pr: pr.number,
     ...releaseVersion(pkg.version, undefined, pr.number, sha),
   };

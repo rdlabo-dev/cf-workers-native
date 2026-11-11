@@ -58,30 +58,26 @@ jobs:
           script: |
             const { resolveRelease } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/npm-release.mjs`);
             return await resolveRelease(github, context);
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: github.event_name != 'issue_comment' && steps.plan.outputs.result != 'null'
-        with:
-          repository: ${{ fromJSON(steps.plan.outputs.result).repository || github.repository }}
-          ref: ${{ fromJSON(steps.plan.outputs.result).sha }}
-          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: github.event_name != 'issue_comment' && steps.plan.outputs.result != 'null'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_run') && steps.plan.outputs.result != 'null'
         with:
           node-version: 24
           package-manager-cache: false
       - name: Build the exact release candidate
-        if: github.event_name != 'issue_comment' && steps.plan.outputs.result != 'null'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_run') && steps.plan.outputs.result != 'null'
         env:
+          SHA: ${{ fromJSON(steps.plan.outputs.result).sha }}
           VERSION: ${{ fromJSON(steps.plan.outputs.result).version }}
           DIST_TAG: ${{ fromJSON(steps.plan.outputs.result).channel }}
         run: |
+          test "$(git rev-parse HEAD)" = "$SHA"
           npm install
           npm version "$VERSION" --no-git-tag-version --ignore-scripts --allow-same-version
           npm pkg set "publishConfig.tag=$DIST_TAG"
           mkdir -p "$RUNNER_TEMP/npm-release"
           npm pack --pack-destination "$RUNNER_TEMP/npm-release"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: github.event_name != 'issue_comment' && steps.plan.outputs.result != 'null'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_run') && steps.plan.outputs.result != 'null'
         with:
           name: npm-release
           path: ${{ runner.temp }}/npm-release/*.tgz
@@ -137,8 +133,18 @@ jobs:
       - name: Update npm for trusted publishing
         run: npm install -g npm@latest
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: github.event_name != 'workflow_dispatch'
         with:
           name: npm-release
+          path: ${{ runner.temp }}/npm-release
+      - name: Download the immutable PR candidate
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ fromJSON(needs.prepare.outputs.plan).candidateArtifact }}
+          run-id: ${{ fromJSON(needs.prepare.outputs.plan).candidateRunId }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
           path: ${{ runner.temp }}/npm-release
       - name: Revalidate authorization and candidate
         id: current
@@ -158,24 +164,29 @@ jobs:
           shopt -s nullglob
           archives=("$RUNNER_TEMP"/npm-release/*.tgz)
           test "${#archives[@]}" -eq 1
-          tar -xOf "${archives[0]}" package/package.json > "$RUNNER_TEMP/release-package.json"
-          node --input-type=module <<'JS'
-          import { readFileSync } from 'node:fs';
-          import assert from 'node:assert/strict';
-          const plan = JSON.parse(process.env.PLAN);
-          const pkg = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/release-package.json`, 'utf8'));
-          assert.equal(pkg.name, 'cf-workers-native');
-          assert.equal(pkg.version, plan.version);
-          assert.equal(pkg.publishConfig.tag, plan.channel);
-          assert.equal(pkg.publishConfig.access, 'public');
-          assert.ok(!pkg.publishConfig.registry || pkg.publishConfig.registry === 'https://registry.npmjs.org');
-          JS
           PACKAGE_ARCHIVE="${archives[0]}" node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
           import { createHash } from 'node:crypto';
-          import { spawnSync } from 'node:child_process';
+          import { execFileSync, spawnSync } from 'node:child_process';
+          import { createRequire } from 'node:module';
+          const require = createRequire(import.meta.url);
+          const npmRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+          const pacote = require(`${npmRoot}/npm/node_modules/pacote`);
+          const readManifest = archive => pacote.manifest(archive, {
+            cache: `${process.env.RUNNER_TEMP}/npm-manifest-cache`, ignoreScripts: true, offline: true,
+          });
           const { version: EXPECTED_VERSION, channel: DIST_TAG } = JSON.parse(process.env.PLAN);
+          const pkg = await readManifest(process.env.PACKAGE_ARCHIVE);
+          assert.equal(pkg.name, 'cf-workers-native');
+          assert.equal(pkg.version, EXPECTED_VERSION, "Unexpected candidate version. Update the PR from main, wait for fresh CI, then post /beta again.");
+          const config = pkg.publishConfig;
+          assert(config && typeof config === 'object' && !Array.isArray(config) &&
+            Object.keys(config).every(key => ['access', 'registry', 'tag'].includes(key)), 'Unexpected publishConfig key');
+          assert.equal(config.tag, DIST_TAG);
+          assert.equal(config.access, 'public');
+          assert([undefined, 'https://registry.npmjs.org', 'https://registry.npmjs.org/'].includes(config.registry),
+            'Unexpected publish registry');
           const archives = new Map([['cf-workers-native', process.env.PACKAGE_ARCHIVE]]);
           const isPublished = (spec, archive) => {
             const existing = spawnSync('npm', ['view', spec, 'dist.integrity', '--json', '--prefer-online',
@@ -200,16 +211,16 @@ jobs:
               if (result.status === 0) continue;
               let code;
               try { code = JSON.parse(result.stdout).error?.code; } catch {}
-              assert.equal(code, 'E409', `Publish failed for ${spec}`);
-              // Another release run can finish before the version is visible to npm view.
-              for (const delay of [0, 2000, 4000, 8000, 16000]) {
+              // A concurrent publish may fail in npm's version check or during the PUT.
+              let matched = false;
+              for (const delay of code === 'E409' ? [0, 2000, 4000, 8000, 16000] : [0]) {
                 if (delay) await new Promise(resolve => setTimeout(resolve, delay));
                 if (isPublished(spec, archive)) {
-                  code = undefined;
+                  matched = true;
                   break;
                 }
               }
-              assert.equal(code, undefined, `Publish conflict for ${spec}: no matching public version became visible`);
+              assert(matched, `Publish failed for ${spec}: no matching public version became visible`);
             }
             console.log(`${spec} already published with matching contents; skipping.`);
           }
