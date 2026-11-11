@@ -238,6 +238,7 @@ test("/beta refuses workflow changes, unmatched PR CI and updates after the comm
     (f) => (f.state.runs[0].head_branch = "unrelated"),
     (f) => (f.state.artifacts[0].name = `npm-beta-pr99-${sha}-1`),
     (f) => (f.state.runs[0].conclusion = "failure"),
+    (f) => (f.state.runs[0].created_at = f.context.payload.comment.created_at),
     (f) => (f.state.pr.updated_at = "2026-10-19T07:00:01Z"),
     (f) => (f.state.forcePushes = [{ createdAt: "2026-10-19T07:00:00Z" }]),
     (f) =>

@@ -235,6 +235,9 @@ async function resolveCommentBeta(github, payload, repo, expectedSha) {
   ) {
     throw new Error("The PR head must pass Compatibility before /beta");
   }
+  if (Date.parse(latest.created_at) >= Date.parse(comment.created_at)) {
+    throw new Error("The candidate CI must start before the /beta comment");
+  }
   const { data: file } = await github.rest.repos.getContent({
     ...repo,
     path: "package.json",
