@@ -2,6 +2,7 @@ name: Compatibility
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   merge_group:
@@ -414,6 +415,54 @@ jobs:
             demo/artifacts/upstream/playwright/
           retention-days: 7
 
+  beta-candidate:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main' && github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Read the base package version
+        id: base-version
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { data: manifest } = await github.rest.repos.getContent({
+              ...context.repo,
+              path: 'package.json',
+              ref: context.payload.pull_request.base.sha,
+            });
+            const pkg = JSON.parse(Buffer.from(manifest.content, 'base64').toString('utf8'));
+            const version = pkg.version.split('-')[0];
+            if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid beta base version');
+            core.setOutput('version', version);
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Pack the exact PR candidate
+        env:
+          BASE_VERSION: ${{ steps.base-version.outputs.version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          npm install
+          VERSION="${BASE_VERSION}-beta.pr${PR_NUMBER}.sha${HEAD_SHA:0:12}"
+          npm version "$VERSION" --no-git-tag-version --ignore-scripts --allow-same-version
+          npm pkg set publishConfig.tag=beta
+          npm pack --pack-destination "$RUNNER_TEMP"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-beta-pr${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cf-workers-native-*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
   required:
     name: CI
     if: ${{ always() }}
@@ -426,6 +475,7 @@ jobs:
         streams-fallback,
         package,
         upstream,
+        beta-candidate,
       ]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
@@ -439,9 +489,12 @@ jobs:
           BINDINGS: ${{ needs.bindings.result }}
           STREAMS: ${{ needs['streams-fallback'].result }}
           PACKAGE: ${{ needs.package.result }}
+          BETA_CANDIDATE: ${{ needs['beta-candidate'].result }}
+          BETA_EXPECTED: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' && github.event.pull_request.draft == false && 'success' || 'skipped' }}
           UPSTREAM: ${{ needs.upstream.result }}
         run: |
           test "$CHECKOUT" = success
+          test "$BETA_CANDIDATE" = "$BETA_EXPECTED"
           expected=success
           if [ "$REUSE" = true ]; then expected=skipped; fi
           for result in "$LIBRARY" "$COMPATIBILITY" "$BINDINGS" "$STREAMS" "$PACKAGE" "$UPSTREAM"; do

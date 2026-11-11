@@ -157,13 +157,30 @@ function commentFixture() {
     state: "open",
     draft: false,
     base: { ref: "main" },
-    head: { sha, repo: { full_name: "contributor/fork" } },
+    head: { sha, ref: "feature", repo: { full_name: "contributor/fork" } },
     updated_at: "2026-10-19T07:00:00Z",
   };
   f.state.files = [];
-  f.state.runs[0].pull_requests = [{ number: 43 }];
+  Object.assign(f.state.runs[0], {
+    id: 12,
+    run_attempt: 1,
+    created_at: "2026-10-18",
+    head_branch: "feature",
+    head_repository: { full_name: "contributor/fork" },
+    pull_requests: [],
+  });
+  f.github.rest.actions.listWorkflowRunArtifacts = "artifacts";
+  f.state.artifacts = [{ name: `npm-beta-pr43-${sha}-1`, expired: false }];
   f.github.rest.repos.getCollaboratorPermissionLevel = async () => ({
     data: { permission: f.state.permission, role_name: f.state.role },
+  });
+  f.github.graphql = async () => ({
+    repository: {
+      pullRequest: {
+        headRefOid: f.state.pr.head.sha,
+        timelineItems: { nodes: f.state.forcePushes ?? [] },
+      },
+    },
   });
   f.github.rest.pulls = {
     get: async () => ({ data: f.state.pr }),
@@ -181,7 +198,8 @@ test("/beta supports an authorized fork head without changing latest", async () 
   const plan = await resolveRelease(f.github, f.context);
   assert.deepEqual(plan, {
     sha,
-    repository: "contributor/fork",
+    candidateRunId: 12,
+    candidateArtifact: `npm-beta-pr43-${sha}-1`,
     pr: 43,
     version: "0.1.1-beta.pr43.shaaaaaaaaaaaaa",
     channel: "beta",
@@ -217,8 +235,19 @@ test("/beta refuses workflow changes, unmatched PR CI and updates after the comm
       ]),
     (f) => (f.state.files = [{ filename: ".github/scripts/npm-release.mjs" }]),
     (f) => (f.state.runs[0].pull_requests = [{ number: 99 }]),
+    (f) => (f.state.runs[0].head_branch = "unrelated"),
+    (f) => (f.state.artifacts[0].name = `npm-beta-pr99-${sha}-1`),
     (f) => (f.state.runs[0].conclusion = "failure"),
+    (f) => (f.state.runs[0].created_at = f.context.payload.comment.created_at),
     (f) => (f.state.pr.updated_at = "2026-10-19T07:00:01Z"),
+    (f) => (f.state.forcePushes = [{ createdAt: "2026-10-19T07:00:00Z" }]),
+    (f) =>
+      (f.state.forcePushes = [
+        {
+          createdAt: "2026-10-19T06:00:00Z",
+          afterCommit: { oid: "b".repeat(40) },
+        },
+      ]),
   ]) {
     const f = commentFixture();
     change(f);
@@ -234,11 +263,13 @@ test("publication rechecks current permission, head and CI after building", asyn
   ]) {
     const f = commentFixture();
     const plan = await resolveRelease(f.github, f.context);
+    dispatchComment(f);
     change(f);
     assert.equal(await isReleaseCurrent(f.github, f.context, plan), false);
   }
   const f = commentFixture();
   const plan = await resolveRelease(f.github, f.context);
+  dispatchComment(f);
   f.state.runs[0].conclusion = "failure";
   await assert.rejects(isReleaseCurrent(f.github, f.context, plan));
 });
@@ -248,4 +279,43 @@ test("GitHub maintain role is accepted even when the legacy permission is write"
   f.state.permission = "write";
   f.state.role = "maintain";
   assert.equal((await resolveRelease(f.github, f.context)).channel, "beta");
+});
+
+function dispatchComment(f) {
+  const comment = {
+    ...f.context.payload.comment,
+    updated_at: f.context.payload.comment.created_at,
+    issue_url:
+      "https://api.github.com/repos/rdlabo-dev/cf-workers-native/issues/43",
+  };
+  f.github.rest.issues = {
+    getComment: async ({ comment_id }) => {
+      assert.equal(comment_id, 123);
+      return { data: comment };
+    },
+  };
+  f.context.eventName = "workflow_dispatch";
+  f.context.payload = { inputs: { "comment-id": "123", "head-sha": sha } };
+  return comment;
+}
+
+test("dispatch keeps the original authorized PR head", async () => {
+  const f = commentFixture();
+  const original = await resolveRelease(f.github, f.context);
+  const comment = dispatchComment(f);
+  assert.deepEqual(await resolveRelease(f.github, f.context), original);
+  f.state.pr.head.sha = "b".repeat(40);
+  assert.equal(await isReleaseCurrent(f.github, f.context, original), false);
+  f.state.pr.head.sha = sha;
+  comment.updated_at = "2026-10-20";
+  await assert.rejects(resolveRelease(f.github, f.context), /no longer valid/);
+});
+
+test("comment beta requires the artifact from the successful run attempt", async () => {
+  const f = commentFixture();
+  f.state.runs[0].run_attempt = 2;
+  await assert.rejects(
+    resolveRelease(f.github, f.context),
+    /candidate is missing or expired/,
+  );
 });
