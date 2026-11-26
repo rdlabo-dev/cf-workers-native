@@ -3,6 +3,10 @@ import { App } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 
+// iOS updates its last URL even while the app is running. Only inspect it
+// for the first login in this JavaScript context.
+let checkedLaunchUrl = false;
+
 /** Public-client authorization code + PKCE. No client secret belongs in the app.
  * Supply endpoints registered for this native client by your identity provider.
  * Use an existing provider SDK instead when it already implements this flow.
@@ -43,7 +47,9 @@ export async function login(options: {
     throw new Error("Register an exact callback without query or fragment");
   // A terminated process has lost the PKCE verifier. Let the user start a
   // fresh transaction when the OS launches the app with the old callback.
-  const launch = await App.getLaunchUrl();
+  const checkLaunchUrl = !checkedLaunchUrl;
+  checkedLaunchUrl = true;
+  const launch = checkLaunchUrl ? await App.getLaunchUrl() : undefined;
   if (launch) {
     const url = new URL(launch.url);
     if (

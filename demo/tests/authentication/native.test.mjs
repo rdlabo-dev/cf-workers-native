@@ -141,6 +141,13 @@ try {
         );
         if (coldStart) {
           assert.equal(
+            backend.requests.filter(
+              (r) => r.method === "POST" && r.path === "/token",
+            ).length,
+            1,
+            "Only the fresh authorization may attempt a token exchange",
+          );
+          assert.equal(
             backend.reports.filter((r) => r.stage === "retry-offered").length,
             1,
           );

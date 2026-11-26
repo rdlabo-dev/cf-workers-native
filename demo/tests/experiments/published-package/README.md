@@ -7,7 +7,7 @@ Only the native bootstrap imports `cf-workers-native/capacitor`.
 Run from the repository root, with the target devices already booted:
 
 ```sh
-CONSUMER_VERSION=0.1.5 npm run test:events:native:prepare --prefix demo
+CONSUMER_VERSION=0.1.8 npm run test:events:native:prepare --prefix demo
 node demo/tests/experiments/published-package/native.mjs ios <simulator-uuid>
 node demo/tests/experiments/published-package/native.mjs android <emulator-serial>
 ```
