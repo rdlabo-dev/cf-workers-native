@@ -42,7 +42,7 @@ The `/session` path and 204 response above are an example application contract, 
 - The public client binds the authorization code to a random verifier and a fresh state. Unrelated deep links are ignored; invalid state, duplicate parameters, denial, timeout and cancellation fail closed. Authorization codes are exchanged once.
 - The bearer token is used only for the session exchange and is not embedded in rendered HTML, localStorage or Dedicated Worker messages. The Worker session is HttpOnly. This is not protection against a compromised device or injected privileged application code.
 - System-browser cookies are not copied into the WebView. The remote transport continues to reject external redirects. Open authentication deliberately through the system browser instead of enabling arbitrary cross-origin document redirects.
-- This minimal example keeps the pending verifier and token in memory. Killing the app requires a new login; it does not silently resume an unbound callback. For refresh tokens, cold-start resume, logout/revocation and secure persistent storage, use the provider's established native SDK and renew the Worker session through its existing endpoint. `remote.getToken` remains available when the token provider can run in the document host; a token held only in the initial Android UI closure does not survive its separate host startup.
+- This minimal example keeps the pending verifier and token in memory. If a registered callback launches a terminated app, the example offers **Sign in again**. Tapping it starts a new login with a fresh state and verifier. For refresh tokens, resuming the original transaction across process death, logout/revocation and secure persistent storage, use the provider's established native SDK and renew the Worker session through its existing endpoint. `remote.getToken` remains available when the token provider can run in the document host; a token held only in the initial Android UI closure does not survive its separate host startup.
 - The application must still enforce authorization and CSRF protections for cookie-based endpoints. A valid Origin header is not authentication.
 
 ## Acceptance tests
@@ -60,6 +60,8 @@ node --test demo/tests/authentication/backend.test.mjs
 UPSTREAM_PLATFORM=ios UPSTREAM_DEVICE=<simulator-udid> node --test demo/tests/authentication/native.test.mjs
 UPSTREAM_PLATFORM=android UPSTREAM_DEVICE=<emulator-id> node --test demo/tests/authentication/native.test.mjs
 ```
+
+Set `OAUTH_COLD_START=1` with the local test issuer to exercise process death. The harness terminates the app after the first authorization, opens the issued callback through the OS, activates the retry button and checks that two authorizations produce exactly one successful code exchange and one session. Accept the system prompt to open the example if the iOS simulator displays it.
 
 The native harness generates platform projects and test-only callback registration. Initialize the Android system browser before running. A locally trusted HTTPS test certificate is required by the system browser as well as the app; the app's Android debug trust configuration does not configure Chrome. Never disable production TLS validation to run these tests.
 

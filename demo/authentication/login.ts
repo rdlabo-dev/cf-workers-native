@@ -41,6 +41,39 @@ export async function login(options: {
     callback.password
   )
     throw new Error("Register an exact callback without query or fragment");
+  // A terminated process has lost the PKCE verifier. Let the user start a
+  // fresh transaction when the OS launches the app with the old callback.
+  const launch = await App.getLaunchUrl();
+  if (launch) {
+    const url = new URL(launch.url);
+    if (
+      url.protocol === callback.protocol &&
+      url.host === callback.host &&
+      url.pathname === callback.pathname
+    ) {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.textContent = "Sign in again";
+      document.body.append(retry);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const cancel = () => {
+            retry.removeEventListener("click", restart);
+            reject(options.signal?.reason ?? new Error("Login cancelled"));
+          };
+          const restart = () => {
+            options.signal?.removeEventListener("abort", cancel);
+            resolve();
+          };
+          retry.addEventListener("click", restart, { once: true });
+          options.signal?.addEventListener("abort", cancel, { once: true });
+          if (options.signal?.aborted) cancel();
+        });
+      } finally {
+        retry.remove();
+      }
+    }
+  }
   for (const [name, value] of Object.entries({
     response_type: "code",
     client_id: options.clientId,
@@ -74,7 +107,8 @@ export async function login(options: {
       );
       setup = (async () => {
         listener = await App.addListener("appUrlOpen", ({ url }) => {
-          if (used) return;
+          // Capacitor may replay the launch intent when the listener attaches.
+          if (used || url === launch?.url) return;
           try {
             const value = authorizationCode(url, callback.href, state);
             if (value !== undefined) {

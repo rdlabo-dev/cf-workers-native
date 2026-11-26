@@ -8,9 +8,10 @@ export const redirectUri =
 // A local OAuth test issuer, not a substitute for a production identity provider.
 // Exercises the system-browser redirect, S256 exchange, one-use code and bearer
 // transfer without contacting a real account or publishing an endpoint.
-export async function startBackend() {
+export async function startBackend({ interruptFirstCallback } = {}) {
   const token = randomBytes(32).toString("base64url");
   const session = randomBytes(32).toString("base64url");
+  let interrupted = false;
   const codes = new Map();
   const evidence = [];
   const bundled = await build({
@@ -60,6 +61,12 @@ export async function startBackend() {
       redirect.searchParams.set("code", code);
       redirect.searchParams.set("state", params.get("state"));
       evidence.push({ stage: "authorization-code" });
+      if (interruptFirstCallback && !interrupted) {
+        interrupted = true;
+        await interruptFirstCallback(redirect.href);
+        evidence.push({ stage: "cold-callback" });
+        return new Response(null, { status: 204 });
+      }
       return new Response(null, {
         status: 302,
         headers: { location: redirect.href },

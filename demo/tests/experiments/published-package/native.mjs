@@ -96,7 +96,13 @@ const backend = await nativeBackend({
         form.requestSubmit();
       } else if(path==='/saved') {
         if(document.querySelector('output')?.textContent!=='1') throw Error('Mutation did not execute exactly once');
-        await report({stage:'complete',navigation:true,form:true,submissions:1});
+        if (sessionStorage.getItem('reload-saved') === null) {
+          sessionStorage.setItem('reload-saved', 'pending');
+          await report({stage:'saved-before-reload'});
+          location.reload();
+        } else {
+          await report({stage:'complete',navigation:true,form:true,submissions:1});
+        }
       } else throw Error('Unexpected page '+path);
     } catch(error) {await report({stage:'failure',message:String(error)});}
   })();`,
@@ -126,6 +132,16 @@ await runNativeAcceptance({
     );
     assert.equal(mutations.length, 1);
     assert.equal(mutations[0].status, 303);
+    assert.equal(
+      backend.reports.filter((r) => r.stage === "saved-before-reload").length,
+      1,
+    );
+    assert.equal(
+      backend.requests.filter(
+        (r) => r.path === "/saved" && r.method === "GET" && r.status === 200,
+      ).length,
+      2,
+    );
     for (const path of ["/", "/details", "/saved"])
       assert.ok(
         backend.requests.some((r) => r.path === path && r.status === 200),
