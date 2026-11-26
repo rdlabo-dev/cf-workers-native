@@ -6,6 +6,7 @@ import { Capacitor, CapacitorHttp } from "@capacitor/core";
 // iOS updates its last URL even while the app is running. Only inspect it
 // for the first login in this JavaScript context.
 let checkedLaunchUrl = false;
+let discardedCallbackUrl: string | undefined;
 
 /** Public-client authorization code + PKCE. No client secret belongs in the app.
  * Supply endpoints registered for this native client by your identity provider.
@@ -57,6 +58,7 @@ export async function login(options: {
       url.host === callback.host &&
       url.pathname === callback.pathname
     ) {
+      discardedCallbackUrl = launch.url;
       const retry = document.createElement("button");
       retry.type = "button";
       retry.textContent = "Sign in again";
@@ -114,7 +116,7 @@ export async function login(options: {
       setup = (async () => {
         listener = await App.addListener("appUrlOpen", ({ url }) => {
           // Capacitor may replay the launch intent when the listener attaches.
-          if (used || url === launch?.url) return;
+          if (used || url === discardedCallbackUrl) return;
           try {
             const value = authorizationCode(url, callback.href, state);
             if (value !== undefined) {
