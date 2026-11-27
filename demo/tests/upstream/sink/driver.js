@@ -17,6 +17,26 @@
     input.dispatchEvent(new Event("change", { bubbles: true }));
   };
   try {
+    if (
+      document.querySelector("h1")?.textContent === "Short link destination"
+    ) {
+      if (
+        location.pathname !== "/__acceptance/landing" ||
+        new URLSearchParams(location.search).get("label") !== "café" ||
+        location.hash !== "#saved"
+      )
+        throw Error(
+          "Unexpected short link landing URL: " +
+            location.pathname +
+            location.search +
+            location.hash,
+        );
+      await report({
+        stage: "complete",
+        platform: window.Capacitor?.getPlatform?.() ?? "browser",
+      });
+      return;
+    }
     await wait(() => document.querySelector("#token"));
     fill(document.querySelector("#token"), "native-sink-test-token");
     await new Promise((r) => setTimeout(r, 50));
@@ -32,7 +52,7 @@
     await wait(() => document.querySelector('input[name="url"]'));
     fill(
       document.querySelector('input[name="url"]'),
-      "https://example.com/capacitor-acceptance",
+      await (await fetch("/__acceptance/destination")).json(),
     );
     fill(document.querySelector('input[name="slug"]'), "capacitor-acceptance");
     await new Promise((r) => setTimeout(r, 50));
@@ -42,10 +62,7 @@
         !document.querySelector('input[name="url"]') &&
         document.body.innerText.includes("capacitor-acceptance"),
     );
-    await report({
-      stage: "complete",
-      platform: window.Capacitor?.getPlatform?.() ?? "browser",
-    });
+    location.assign("/capacitor-acceptance");
   } catch (error) {
     await report({
       stage: "failure",

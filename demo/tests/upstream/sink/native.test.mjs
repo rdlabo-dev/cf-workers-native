@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { runNativeAcceptance } from "../../native/acceptance.mjs";
-import { startBackend, root } from "./backend.mjs";
+import { verifyLink, startBackend, root } from "./backend.mjs";
 test(
   "Sink login and link creation in native WebView",
   { timeout: 600000 },
@@ -24,11 +24,7 @@ test(
           platform,
         );
         assert.ok(backend.reports.some((r) => r.stage === "login"));
-        const row = await backend.db
-          .prepare("SELECT url FROM links WHERE slug = ?")
-          .bind("capacitor-acceptance")
-          .first();
-        assert.equal(row?.url, "https://example.com/capacitor-acceptance");
+        await verifyLink(backend);
       },
     });
   },
