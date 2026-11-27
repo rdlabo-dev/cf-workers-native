@@ -8,6 +8,7 @@ export const fsFeature = defineFeature<typeof fs>()("node.fs", [
   "readFileSync",
   "copyFileEntry",
   "readFileCallback",
+  "wholeFileDanglingLink",
   "promises",
   "readdirSync",
   "existsSync",
@@ -56,6 +57,26 @@ export const fsContract: ContractSuite<typeof fsFeature> = {
       equal(api.readFileSync("/app/dist/a.txt", { encoding: "utf8" }), "alpha");
       const bytes = api.readFileSync("/app/dist/a.txt") as Uint8Array;
       equal(bytes.length, 5);
+    },
+    async wholeFileDanglingLink(api) {
+      const link = "/tmp/whole-file-dangling-link";
+      const target = "/tmp/whole-file-absent-target";
+      api.symlinkSync(target, link);
+      try {
+        for (const write of [api.promises.writeFile, api.promises.appendFile]) {
+          let code;
+          try {
+            await write(link, "data");
+          } catch (error) {
+            code = (error as { code?: string }).code;
+          }
+          equal(code, "EEXIST");
+          equal(api.readlinkSync(link), target);
+          equal(api.existsSync(target), false);
+        }
+      } finally {
+        api.unlinkSync(link);
+      }
     },
     async readFileCallback(api) {
       await new Promise<void>((resolve, reject) => {
@@ -122,6 +143,7 @@ export class FsImplementation extends FeatureImplementation<typeof fsFeature> {
       readFileSync: { status: "supported" },
       copyFileEntry: { status: "supported" },
       readFileCallback: { status: "supported" },
+      wholeFileDanglingLink: { status: "supported" },
       promises: { status: "supported" },
       readdirSync: { status: "supported" },
       existsSync: { status: "supported" },
