@@ -108,7 +108,7 @@ function labelledNode(xml, text) {
 // Use the rendered DOM only for fixture web elements; native host checks stay UI-based.
 async function renderedWebNode(text, xml) {
   if (
-    !/^(Worker Home|Worker Next|Posted verified|Network recovered|Network interrupted|Next|Submit|Check network|Interrupt network)$/.test(
+    !/^(Worker Home|Worker Next|Posted verified|Network recovered|Network interrupted|Next|Submit|Check network|Interrupt network|Sign in and save|Saved for reader@example\.com)$/.test(
       text,
     )
   )

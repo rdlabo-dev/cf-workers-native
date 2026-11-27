@@ -11,6 +11,10 @@ on:
       - "package.json"
       - "src/**"
       - "demo/tests/native-embedding/**"
+      - "demo/tests/upstream/flare-stack-blog/**"
+      - "demo/tests/upstream/checkout.mjs"
+      - "demo/tests/native/backend.mjs"
+      - "demo/package*.json"
       - "demo/tests/native/android-socket-eof/**"
   workflow_dispatch:
 
