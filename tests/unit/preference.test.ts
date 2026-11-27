@@ -342,3 +342,19 @@ it("preserves the loaded worker as the disposer receiver", async () => {
   runtime.dispose();
   expect(owned.releases).toBe(1);
 });
+it("exposes the direct handler bindings through the imported worker env", async () => {
+  const { env } =
+    await import("../../src/cloudflare/apis/cloudflare-workers/index");
+  const binding = {
+    get() {
+      return "registered";
+    },
+  };
+  const { runtime, direct } = setup("direct", { STORE: binding });
+  direct.fetch.mockImplementation(() => {
+    expect(env.STORE).toBe(binding);
+    return new Response("ok");
+  });
+  expect(await (await runtime.fetch("https://test/api")).text()).toBe("ok");
+  expect(env.STORE).toBeUndefined();
+});

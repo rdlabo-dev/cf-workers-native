@@ -62,7 +62,7 @@ export class DirectFetchRuntime<Env> extends FetchRuntime<Env> {
     this.restoreWeb();
   }
   protected dispatch(request: Request, env: Env, ctx: WorkerContext) {
-    return runWithRequestScope(() => this.worker.fetch(request, env, ctx));
+    return runWithRequestScope(() => this.worker.fetch(request, env, ctx), env);
   }
 }
 
@@ -262,7 +262,9 @@ export class PreferredFetchRuntime<Env> extends FetchRuntime<Env> {
         );
       return this.remote.fetch(request);
     }
-    return this.handler!.fetch(request, env, ctx);
+    return this.selected === "direct"
+      ? runWithRequestScope(() => this.handler!.fetch(request, env, ctx), env)
+      : this.handler!.fetch(request, env, ctx);
   }
   protected override close() {
     this.closed = true;
