@@ -249,15 +249,28 @@ async function crashRenderer() {
         socket.close();
         reject(new Error("Renderer did not crash"));
       }, 10_000);
+      let crashRequested = false;
       const done = () => {
         clearTimeout(timer);
         socket.close();
         resolve();
       };
-      socket.addEventListener("open", () =>
-        socket.send(JSON.stringify({ id: 1, method: "Page.crash" })),
-      );
-      socket.addEventListener("close", done, { once: true });
+      socket.addEventListener("open", () => {
+        socket.send(JSON.stringify({ id: 1, method: "Page.crash" }));
+        crashRequested = true;
+      });
+      // Killing the renderer can surface as a WebSocket error before close.
+      // The caller independently verifies that the native host became visible.
+      const disconnected = () => {
+        if (crashRequested) done();
+        else {
+          clearTimeout(timer);
+          reject(
+            new Error("Debugger disconnected before requesting renderer crash"),
+          );
+        }
+      };
+      socket.addEventListener("close", disconnected, { once: true });
       socket.addEventListener("message", (event) => {
         const message = JSON.parse(event.data);
         if (message.method === "Inspector.targetCrashed") done();
@@ -267,14 +280,7 @@ async function crashRenderer() {
           reject(new Error(JSON.stringify(message.error)));
         }
       });
-      socket.addEventListener(
-        "error",
-        () => {
-          clearTimeout(timer);
-          reject(new Error("Debugger connection failed"));
-        },
-        { once: true },
-      );
+      socket.addEventListener("error", disconnected, { once: true });
     });
   } finally {
     adb("forward", "--remove", `tcp:${port}`);
