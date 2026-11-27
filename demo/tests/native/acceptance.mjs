@@ -34,7 +34,7 @@ export async function runNativeAcceptance({
   expectedMode = "worker",
   render = "/",
   validate,
-  restartAfterStage,
+  restart,
   platform = process.env.UPSTREAM_PLATFORM,
   device = process.env.UPSTREAM_DEVICE,
   shell = defaultShell,
@@ -251,8 +251,8 @@ export async function runNativeAcceptance({
     }
     const launched = Date.now();
     const launch = async () => {
-      if (platform === "ios")
-        await run("xcrun", [
+      if (platform === "ios") {
+        const { stdout } = await run("xcrun", [
           ...(physicalIOS
             ? [
                 "devicectl",
@@ -262,28 +262,72 @@ export async function runNativeAcceptance({
                 "--terminate-existing",
                 "--device",
                 device,
+                ...(restart ? ["--json-output", "-"] : []),
               ]
             : ["simctl", "launch", "--terminate-running-process", device]),
           appId,
         ]);
-      else
+        if (restart)
+          return Number(
+            physicalIOS
+              ? JSON.parse(stdout).result.process.processIdentifier
+              : stdout.trim().split(": ").at(-1),
+          );
+      } else {
         await run("adb", [
           "-s",
           device,
           "shell",
           "am",
           "start",
+          ...(restart ? ["-W"] : []),
           "-n",
           `${appId}/.MainActivity`,
         ]);
+        if (restart)
+          return Number(
+            (
+              await run("adb", ["-s", device, "shell", "pidof", appId])
+            ).stdout.trim(),
+          );
+      }
     };
-    await launch();
-    if (restartAfterStage) {
-      await waitForAcceptance(backend, timeout, restartAfterStage);
+    const initialPid = await launch();
+    let processes;
+    if (restart) {
+      assert.ok(
+        Number.isSafeInteger(initialPid) && initialPid > 0,
+        "Missing original app PID",
+      );
+      await waitForAcceptance(backend, timeout, restart.stage);
       if (platform === "android")
         await run("adb", ["-s", device, "shell", "am", "force-stop", appId]);
-      // iOS launch above terminates the existing process on both host types.
-      await launch();
+      else if (physicalIOS)
+        await run("xcrun", [
+          "devicectl",
+          "device",
+          "process",
+          "terminate",
+          "--device",
+          device,
+          "--pid",
+          String(initialPid),
+          "--kill",
+        ]);
+      else await run("xcrun", ["simctl", "terminate", device, appId]);
+      assert.ok(
+        !backend.reports.some((r) => r.stage === "complete"),
+        "Scenario completed before relaunch",
+      );
+      restart.afterStop();
+      const relaunchedPid = await launch();
+      assert.ok(
+        Number.isSafeInteger(relaunchedPid) &&
+          relaunchedPid > 0 &&
+          relaunchedPid !== initialPid,
+        "Expected a new app process",
+      );
+      processes = { initialPid, relaunchedPid };
     }
     await waitForAcceptance(backend, timeout);
     await validate(backend, platform);
@@ -293,6 +337,7 @@ export async function runNativeAcceptance({
         {
           platform,
           ...measurements(launched),
+          processes,
           elapsedFlowMs: Date.now() - launched,
           bundleBytes: (
             await Promise.all(

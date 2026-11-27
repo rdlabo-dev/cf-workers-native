@@ -44,9 +44,6 @@ async function sessionFixture() {
   const backend = await nativeBackend({
     driver: driver.outputFiles[0].text,
     dispose: async () => worker?.dispose(),
-    onReport: (report) => {
-      if (report.stage === "ready-for-restart") relaunch = true;
-    },
     dispatch: async (url, init) => {
       const { pathname, origin } = new URL(url);
       if (!pathname.startsWith("/session-test")) {
@@ -100,6 +97,9 @@ async function sessionFixture() {
     return {
       ...backend,
       db: initialized.db,
+      afterStop() {
+        relaunch = true;
+      },
       async checkRevocation() {
         assert.ok(
           authenticatedHeaders?.cookie,
@@ -133,7 +133,7 @@ test(
       workerConfig: fileURLToPath(new URL("worker.jsonc", import.meta.url)),
       kvExecution: { KV: "remote" },
       render: "/session-test",
-      restartAfterStage: "ready-for-restart",
+      restart: { stage: "ready-for-restart", afterStop: backend.afterStop },
       artifacts: join(root, "../session-native"),
       validate: async (backend, platform) => {
         assert.equal(
