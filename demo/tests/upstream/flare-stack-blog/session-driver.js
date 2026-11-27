@@ -31,22 +31,26 @@ import { createAuthClient } from "better-auth/client";
     }
     const email = "reader@example.com";
     if (location.pathname === "/session-test") {
-      const direct = createAuthClient({ baseURL: origin });
-      let blocked = false;
       try {
-        await direct.getSession({ query: { cors: "omit" } });
+        const direct = createAuthClient({ baseURL: origin });
+        let blocked = false;
+        try {
+          await direct.getSession({ query: { cors: "omit" } });
+        } catch (error) {
+          if (!(error instanceof TypeError)) throw error;
+          blocked = true;
+        }
+        if (!blocked) throw Error("Expected unreadable cross-origin response");
+        const allowed = await direct.getSession({ query: { cors: "allow" } });
+        if (allowed.error || allowed.data !== null)
+          throw Error("Expected readable anonymous response");
+        await report({
+          stage: "cors-control",
+          platform: window.Capacitor.getPlatform(),
+        });
       } catch (error) {
-        if (!(error instanceof TypeError)) throw error;
-        blocked = true;
+        await report({ stage: "cors-diagnostic-error", error: String(error) });
       }
-      if (!blocked) throw Error("Expected unreadable cross-origin response");
-      const allowed = await direct.getSession({ query: { cors: "allow" } });
-      if (allowed.error || allowed.data !== null)
-        throw Error("Expected readable anonymous response");
-      await report({
-        stage: "cors-control",
-        platform: window.Capacitor.getPlatform(),
-      });
       if (await user()) throw Error("Expected anonymous session");
       const result = await client.signIn.email({
         email,

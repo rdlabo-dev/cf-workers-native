@@ -135,6 +135,11 @@ test(
           backend.reports.find((r) => r.stage === "complete").platform,
           platform,
         );
+        assert.equal(
+          backend.reports.find((r) => r.stage === "cors-diagnostic-error")
+            ?.error,
+          undefined,
+        );
         assert.ok(
           backend.reports.some(
             (r) => r.stage === "cors-control" && r.platform === platform,

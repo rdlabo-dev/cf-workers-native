@@ -9,6 +9,12 @@ function setup(cache = new Map<string, Response>()) {
   let assets = ["/index.html"];
   let hostAvailable = true;
   let hostResponsive = true;
+  const getClient = vi.fn(
+    async (
+      _id: string,
+    ): Promise<{ type: string; frameType: string; url: string } | undefined> =>
+      undefined,
+  );
   const listeners = new Map<string, (event: any) => void>();
   const dispatch = vi.fn(async (request: any) => ({
     url: "https://worker.example" + new URL(request.url).pathname,
@@ -51,6 +57,7 @@ function setup(cache = new Map<string, Response>()) {
       addEventListener: (name: string, handler: any) =>
         listeners.set(name, handler),
       clients: {
+        get: getClient,
         matchAll: async () =>
           hostAvailable
             ? [
@@ -91,14 +98,16 @@ function setup(cache = new Map<string, Response>()) {
       expect(port.postMessage).toHaveBeenCalledWith("done");
     },
     dispatch,
+    getClient,
     nativeFetch,
     setAssets: (value: string[]) => {
       assets = value;
     },
-    fetch(request: Request): Promise<Response> | undefined {
+    fetch(request: Request, clientId = ""): Promise<Response> | undefined {
       let response: Promise<Response> | undefined;
       listeners.get("fetch")!({
         request,
+        clientId,
         respondWith: (value: Promise<Response>) => {
           response = value;
         },
@@ -123,6 +132,33 @@ it("passes POST bytes to the common Worker host", async () => {
     }),
   );
 });
+it.each([
+  ["top-level", "same-origin", undefined, "https://localhost"],
+  ["top-level", "same-origin", "null", "null"],
+  ["nested", "same-origin", undefined, undefined],
+  ["unknown", "same-origin", undefined, undefined],
+  ["top-level", "cors", undefined, undefined],
+] as const)(
+  "forwards Origin for %s client, %s mode and header %s",
+  async (frameType, mode, origin, expected) => {
+    const sw = setup();
+    if (frameType !== "unknown")
+      sw.getClient.mockResolvedValue({
+        type: "window",
+        frameType,
+        url: "https://localhost/page",
+      });
+    await sw.fetch(
+      new Request("https://localhost/auth", {
+        method: "POST",
+        mode,
+        headers: origin ? { origin } : {},
+      }),
+      "source",
+    );
+    expect(sw.dispatch.mock.calls[0][0].headers.origin).toBe(expected);
+  },
+);
 it("uses the current asset manifest after an application update", async () => {
   const sw = setup();
   await sw.fetch(new Request("https://localhost/page"));
