@@ -103,6 +103,18 @@ export function createNetworkFixture() {
           response.writeHead(200);
           response.flushHeaders();
           return;
+        case "/incomplete-length":
+        case "/incomplete-chunked": {
+          // Finish the transport normally, but omit bytes required by HTTP.
+          const framing =
+            url.pathname === "/incomplete-length"
+              ? "Content-Length: 12\r\n\r\npartial"
+              : "Transfer-Encoding: chunked\r\n\r\n7\r\npartial\r\n";
+          request.socket.end(
+            `HTTP/1.1 200 OK\r\nConnection: close\r\n${framing}`,
+          );
+          return;
+        }
         case "/early":
           response.writeHead(200);
           response.flushHeaders();

@@ -48,6 +48,7 @@ export const fetchPolicyFeature = defineFeature<API>()("web.fetch-policy", [
   "stream303",
   "bufferReplay",
   "redirectLimit",
+  "incompleteBody",
   "abortBody",
   "dataURL",
   "cache",
@@ -256,6 +257,16 @@ export const fetchPolicyContract: ContractSuite<typeof fetchPolicyFeature> = {
     async redirectLimit(api) {
       await rejects(api.fetch(`${api.baseURL}/loop`));
     },
+    async incompleteBody(api) {
+      for (const framing of ["length", "chunked"]) {
+        const response = await api.fetch(
+          `${api.baseURL}/incomplete-${framing}`,
+        );
+        equal(response.status, 200);
+        await rejects(response.text());
+      }
+      equal(await (await api.fetch(`${api.baseURL}/get`)).text(), "hello");
+    },
     async abortBody(api) {
       const controller = new AbortController();
       const response = await api.fetch(`${api.baseURL}/slow`, {
@@ -322,6 +333,7 @@ export class FetchPolicyImplementation extends FeatureImplementation<
       stream303: { status: "supported" },
       bufferReplay: { status: "supported" },
       redirectLimit: { status: "supported" },
+      incompleteBody: { status: "supported" },
       abortBody: { status: "supported" },
       dataURL: { status: "supported" },
       cache: { status: "supported" },
