@@ -6,6 +6,7 @@ import type { ContractSuite } from "cf-workers-native/shared/contracts/testing";
 import * as fs from "./index.js";
 export const fsFeature = defineFeature<typeof fs>()("node.fs", [
   "readFileSync",
+  "copyFileEntry",
   "readFileCallback",
   "promises",
   "readdirSync",
@@ -30,6 +31,26 @@ const enoent = (fn: () => unknown) => {
 export const fsContract: ContractSuite<typeof fsFeature> = {
   feature: fsFeature,
   cases: {
+    copyFileEntry(api) {
+      const root = api.mkdtempSync("/tmp/copy-contract-");
+      try {
+        api.mkdirSync(root + "/files");
+        api.symlinkSync(root + "/files", root + "/alias");
+        api.writeFileSync(root + "/source", "replacement");
+        api.writeFileSync(root + "/files/destination", "original");
+        for (let i = 0; i < 3; i++)
+          api.copyFileSync(root + "/source", root + "/alias/destination");
+        equal(
+          api.readFileSync(root + "/files/destination", "utf8"),
+          "replacement",
+        );
+        api.unlinkSync(root + "/files/destination");
+        api.rmdirSync(root + "/files");
+        equal(api.existsSync(root + "/files"), false);
+      } finally {
+        api.rmSync(root, { recursive: true, force: true });
+      }
+    },
     readFileSync(api) {
       equal(api.readFileSync("/app/dist/a.txt", "utf8"), "alpha");
       equal(api.readFileSync("/app/dist/a.txt", { encoding: "utf8" }), "alpha");
@@ -99,6 +120,7 @@ export class FsImplementation extends FeatureImplementation<typeof fsFeature> {
   constructor(private readonly api = fs) {
     super(fsFeature, {
       readFileSync: { status: "supported" },
+      copyFileEntry: { status: "supported" },
       readFileCallback: { status: "supported" },
       promises: { status: "supported" },
       readdirSync: { status: "supported" },

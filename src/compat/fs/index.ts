@@ -11,6 +11,7 @@ import * as embedded from "./embedded.js";
 import {
   temporary,
   retainTemporaryFiles,
+  replaceTemporaryFile,
   temporaryPath,
   clearTemporaryFiles,
   writablePath,
@@ -391,12 +392,22 @@ installOperation("copyFile", (source: any, destination: any, mode = 0) => {
     throw Object.assign(new Error("The operation is not supported"), {
       code: "ERR_UNSUPPORTED_OPERATION",
     });
-  if (temporaryPath(source))
-    return temporaryCopyFile(source, destination, mode);
+  const sourcePath = pathOf(source);
+  const fromTemporary = temporaryPath(sourcePath);
   writablePath(destination, "copyFile");
+  const entry = api.lstatSync(destination, { throwIfNoEntry: false });
+  if (
+    (entry?.isFile() || entry?.isSymbolicLink()) &&
+    (mode !== 1 || !api.existsSync(destination)) &&
+    api.statSync(sourcePath, { throwIfNoEntry: false })?.isFile()
+  ) {
+    replaceTemporaryFile(pathOf(destination), api.readFileSync(sourcePath));
+    return;
+  }
+  if (fromTemporary) return temporaryCopyFile(sourcePath, destination, mode);
   if (mode === 1 && api.existsSync(destination))
     throw Object.assign(new Error("File already exists"), { code: "EEXIST" });
-  temporary.writeFileSync(destination, embedded.readFileSync(pathOf(source)));
+  temporary.writeFileSync(destination, embedded.readFileSync(sourcePath));
 });
 const copyTree = (source: string, destination: string, options: any) => {
   const fail = (code: string): never => {

@@ -541,6 +541,26 @@ function createTemporary() {
         ),
       );
   return {
+    replaceFile(path: string, data: Uint8Array) {
+      const target = mutable(path, "copyFile", false) as string;
+      const parent = core.getResolvedLinkOrThrow(
+        posix.dirname(target),
+        "copyFile",
+      );
+      const entry = parent.getChild(posix.basename(target));
+      const previous = entry.getNode();
+      const replacement = core.createNode(fs.constants.S_IFREG | 0o666);
+      try {
+        replacement.setBuffer(data);
+      } catch (error) {
+        core.deleteNode(replacement);
+        throw error;
+      }
+      // Retarget this entry only. Its parent keeps the same child count, while
+      // other links and open descriptions retain their original node.
+      entry.setNode(replacement);
+      if (--previous.nlink === 0) core.deleteNode(previous);
+    },
     descriptorFlags(fd: number) {
       return core.getFileByFdOrThrow(fd, "write").flags;
     },
@@ -634,6 +654,9 @@ export function readDescriptor(fd: number): Buffer {
   return active().readDescriptor(fd);
 }
 
+export function replaceTemporaryFile(path: string, data: Uint8Array): void {
+  active().replaceFile(path, data);
+}
 export function descriptorFlags(fd: number): number {
   return active().descriptorFlags(fd);
 }
