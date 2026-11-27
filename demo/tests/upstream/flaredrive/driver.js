@@ -34,7 +34,9 @@
         });
         const chunk = new Uint8Array(await response.arrayBuffer());
         if (
-          !response.ok ||
+          response.status !== 200 ||
+          response.headers.has("content-range") ||
+          response.headers.get("content-type") !== "application/octet-stream" ||
           chunk.length !== end - start + 1 ||
           !chunk.every((value, i) => value === byteAt(start + i))
         )
