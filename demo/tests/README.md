@@ -198,7 +198,7 @@ npm run test:native:network -- android <emulator-serial>
 ```
 
 These commands replace only the temporary consumer's generated `dist`, sync the
-plugin, build, install and check all 84 results. They fail on missing or failed
+plugin, build, install and check all 86 results. They fail on missing or failed
 results. Build logs and reports are written under the consumer's
 `artifacts/network/`. Android uses `10.0.2.2:4201`; iOS uses `127.0.0.1:4201`.
 `ADB` and `ADB_SERVER_PORT` can select an alternate Android tool/server.
@@ -219,7 +219,7 @@ security configuration. No test trust configuration is shipped in the library.
 Keep the fixture server running during the run so its certificates match.
 The TLS cases also consume the body and reject both clean and unclean
 EOF-delimited responses, enforcing the documented HTTPS framing requirement.
-Each platform must produce 94 successful results; DNS failures and timeouts do
+Each platform must produce 96 successful results; DNS failures and timeouts do
 not count as certificate rejection. Native TLS tests require no external site.
 
 The separate `npm run test:workers:tls` reference test still uses public
