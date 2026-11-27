@@ -52,6 +52,7 @@ export default defineConfig({
     include: [
       "tests/unit/**/*.test.ts",
       "src/cloudflare/apis/cloudflare-node/index.spec.ts",
+      "src/cloudflare/apis/cloudflare-workers/index.spec.ts",
       "src/shared/globals/index.spec.ts",
       "src/shared/request-context.spec.ts",
       "src/shared/globals/web.spec.ts",
