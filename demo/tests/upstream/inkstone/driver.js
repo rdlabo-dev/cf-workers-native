@@ -21,10 +21,17 @@
   const body = "買い物メモ 📝 — café と牛乳";
   const editor = () =>
     document.querySelector(".cm-content[contenteditable=true]");
-  const restoredBody = () =>
-    editor()?.textContent === body ||
-    editor()?.querySelector(".cm-live-block p[data-line='0']")?.textContent ===
-      body;
+  const restoredBody = () => {
+    const content = editor();
+    if (!content) return false;
+    // Inkstone's Markdown rendering adds a newline after its final paragraph.
+    return (
+      content.textContent === body ||
+      (content.textContent === body + "\n" &&
+        content.querySelector(".cm-live-block p[data-line='0']")
+          ?.textContent === body)
+    );
+  };
   try {
     if (!sessionStorage.getItem("acceptance-created")) {
       await wait(
@@ -96,6 +103,11 @@
       }
     }
     await wait(restoredBody);
+    const saved = await fetch(
+      "/api/notes/" + sessionStorage.getItem("acceptance-created"),
+    );
+    if (!saved.ok || (await saved.json()).content !== body)
+      throw Error("Unexpected stored note after reload");
     await report({
       stage: "complete",
       platform: window.Capacitor?.getPlatform?.() ?? "browser",
