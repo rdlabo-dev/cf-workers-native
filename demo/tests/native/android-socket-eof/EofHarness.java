@@ -30,11 +30,42 @@ public class EofHarness {
    throw new UnsupportedOperationException(m.toString());
   });
   set(c,"channel",proxy);set(c,"ready",true);set(c,"encrypted",true);set(c,"count",65536);
+  String mode=args.length==0?"close":args[0];
+  if (mode.startsWith("late-")) {
+   Field field=WorkerSockets.class.getDeclaredField("connections");
+   field.setAccessible(true);
+   ((Map)field.get(outer)).put("test",c);
+   ChannelInboundHandler handler=(ChannelInboundHandler)c;
+   ChannelHandlerContext context=embedded.pipeline().context(handler);
+   boolean firstReset=mode.equals("late-reset-first");
+   if(mode.equals("late-read")) handler.channelInactive(context);
+   else {
+    set(c,"encrypted",false);
+    Exception reset=new java.io.IOException("Connection reset");
+    Exception other=new java.io.IOException("other");
+    handler.exceptionCaught(context,firstReset ? reset : other);
+    handler.exceptionCaught(context,firstReset ? other : reset);
+   }
+   WorkerSockets.Result late=new WorkerSockets.Result() {
+    public void resolve(JSObject value){
+     if(!firstReset)throw new AssertionError("Failed socket resolved");
+     if(value==null)events.add("watch");
+     else if(Boolean.TRUE.equals(value.get("eof")) && Boolean.TRUE.equals(value.get("reset")))events.add("reset EOF");
+     else throw new AssertionError(value);
+    }
+    public void reject(String message){events.add(message);}
+   };
+   outer.read("test",64,late);
+   outer.watch("test",late);
+   embedded.runPendingTasks();
+   String expected=mode.equals("late-read") ? "TLS connection closed without close_notify" : "Socket failed: other";
+   if(!events.equals(firstReset ? Arrays.asList("reset EOF","watch") : Arrays.asList(expected,expected)))throw new AssertionError(events);
+   return;
+  }
   Result read=new Result("read",events),watch=new Result("watch",events);set(c,"reading",read);set(c,"watching",watch);
   ChannelHandlerContext context=embedded.pipeline().context((ChannelHandler)c);
   ChannelInboundHandler handler=(ChannelInboundHandler)c;
   handler.userEventTriggered(context,SslCloseCompletionEvent.SUCCESS);
-  String mode=args.length==0?"close":args[0];
   if(mode.equals("inactive"))handler.channelInactive(context);
   if(mode.equals("shutdown"))handler.userEventTriggered(context,io.netty.channel.socket.ChannelInputShutdownEvent.INSTANCE);
   if(mode.equals("reset"))handler.exceptionCaught(context,new java.io.IOException("Connection reset"));
