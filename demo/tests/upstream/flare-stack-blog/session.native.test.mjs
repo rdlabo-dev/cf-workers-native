@@ -2,29 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { seedUser } from "./session-user.mjs";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { nativeBackend } from "../../native/backend.mjs";
 import { runNativeAcceptance } from "../../native/acceptance.mjs";
 import { root, startWorker } from "./backend.mjs";
 
-async function seedUser(db) {
-  const { hashPassword } = await import(
-    createRequire(join(root, "package.json")).resolve("better-auth/crypto")
-  );
-  await db
-    .prepare(
-      "INSERT INTO user(id,name,email,email_verified,updated_at) VALUES ('reader','Reader','reader@example.com',1,0)",
-    )
-    .run();
-  await db
-    .prepare(
-      "INSERT INTO account(id,account_id,provider_id,user_id,password,updated_at) VALUES ('credential','reader','credential','reader',?,0)",
-    )
-    .bind(await hashPassword("local-fixture-password"))
-    .run();
-}
 async function sessionFixture() {
   let worker;
   let authenticatedHeaders;

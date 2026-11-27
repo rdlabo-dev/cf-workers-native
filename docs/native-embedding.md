@@ -262,3 +262,27 @@ scripts and healthy operation beyond the startup deadline. These checks cover
 simulators/emulators, not physical-device behavior or measured WebView deallocation.
 General framework acceptance from the Capacitor demos is not a claim that every
 framework flow has also been exercised inside these embedding hosts.
+
+### Authenticated screen recovery
+
+On iOS 26.5 and Android API 35 the independent embedding hosts sign in to the
+pinned Better Auth fixture and save one database row. The server checks the
+session on every screen opening. Closing and reopening the screen preserves
+the same user. After termination of the visible WebView renderer, reopening
+also shows the saved row. The server observes one sign-in and one write in
+total. On iOS the host closes the affected controller and creates a new one.
+On Android the SDK returns to the host Activity, which opens a new SDK screen.
+
+To reproduce, install the root and demo dependencies, build the package and
+prepare the [upstream authentication fixture](../demo/tests/upstream/flare-stack-blog/README.md).
+With the simulator or emulator booted, run the corresponding command:
+
+```sh
+node demo/tests/native-embedding/session-recovery.mjs ios <simulator-udid>
+node demo/tests/native-embedding/session-recovery.mjs android <emulator-serial>
+```
+
+Both runs use a local HTTPS issuer, a test account and an isolated D1 database.
+The Android run requires the Debug consumer and Java 21. The iOS probe targets
+the visible document's WebContent process in the simulator. These scenarios
+verify host-assisted recovery after a completed write.

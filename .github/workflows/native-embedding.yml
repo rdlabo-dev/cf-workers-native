@@ -49,6 +49,13 @@ jobs:
           node demo/tests/native-embedding/ios/run.mjs "$WORKERS_SIMULATOR"
           node demo/tests/native-embedding/ios/run.mjs "$WORKERS_SIMULATOR" startup-failure
           node demo/tests/native-embedding/ios/run.mjs "$WORKERS_SIMULATOR" broken-entry
+      - name: Verify authenticated screen recovery
+        env:
+          WORKERS_IOS_PROBE_DIR: ${{ runner.temp }}/workers-ios-session-recovery
+        run: |
+          npm install --prefix demo
+          node demo/tests/upstream/flare-stack-blog/prepare.mjs
+          node demo/tests/native-embedding/session-recovery.mjs ios "$WORKERS_SIMULATOR"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:

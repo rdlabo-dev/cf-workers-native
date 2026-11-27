@@ -184,6 +184,7 @@ jobs:
           - suite: upstream-flare-stack-blog
             native: flare-stack-blog
             extraNativeTest: demo/tests/upstream/flare-stack-blog/session.native.test.mjs
+            embeddingTest: node demo/tests/native-embedding/session-recovery.mjs android emulator-5554
             node: 24.21.0
             commands: |
               node tests/upstream/flare-stack-blog/prepare.mjs
@@ -250,7 +251,9 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          script: UPSTREAM_PLATFORM=android UPSTREAM_DEVICE=emulator-5554 node --test --test-concurrency=1 demo/tests/upstream/${{ matrix.native }}/native.test.mjs ${{ matrix.extraNativeTest }}
+          script: |
+            UPSTREAM_PLATFORM=android UPSTREAM_DEVICE=emulator-5554 node --test --test-concurrency=1 demo/tests/upstream/${{ matrix.native }}/native.test.mjs ${{ matrix.extraNativeTest }}
+            ${{ matrix.embeddingTest }}
       - name: Test OpenNext routes and release skew in Android WebView
         if: matrix.suite == 'opennext'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d

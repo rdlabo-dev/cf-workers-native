@@ -6,6 +6,7 @@ import path from "node:path";
 
 const here = fileURLToPath(new URL("./", import.meta.url));
 const device = process.argv[2];
+const recovery = process.argv.includes("session-recovery");
 const lifecycle = process.argv.includes("--lifecycle");
 if (lifecycle) {
   const response = await fetch("http://127.0.0.1:18764/ok", {
@@ -49,7 +50,9 @@ await writeFile(
   path.join(artifacts, "webview.txt"),
   adb("shell", "dumpsys", "webviewupdate"),
 );
-for (const scenario of ["normal", "startup-failure", "broken-entry"])
+for (const scenario of recovery
+  ? ["session-recovery"]
+  : ["normal", "startup-failure", "broken-entry"])
   run(process.execPath, ["../build-web.mjs", "android", scenario]);
 if (!centralOnly)
   run(gradle, [
@@ -296,6 +299,29 @@ async function acceptance() {
   try {
     await waitFor("Native host visits 0");
     await waitFor("Host service worker host-sw-retained");
+    if (recovery) {
+      const port = new URL(process.env.WORKERS_SESSION_ORIGIN).port;
+      adb("reverse", "tcp:" + port, "tcp:" + port);
+      try {
+        await tap("Open Worker");
+        await waitFor("Sign in and save");
+        await tap("Sign in and save");
+        await waitFor("Saved for reader@example.com");
+        adb("shell", "input", "keyevent", "4");
+        await waitFor("Native host visits 1");
+        await tap("Open Worker");
+        await waitFor("Saved for reader@example.com");
+        await crashRenderer();
+        await waitFor("Native host visits 2");
+        await tap("Open Worker");
+        await waitFor("Saved for reader@example.com");
+        adb("shell", "input", "keyevent", "4");
+        await waitFor("Native host visits 3");
+      } finally {
+        adb("reverse", "--remove", "tcp:" + port);
+      }
+      return;
+    }
     const startedAt = Date.now();
     await tap("Open Worker");
     await waitFor("Worker Home");
