@@ -56,11 +56,18 @@ export async function startBackend() {
         );
       const response = await worker.dispatchFetch(url, init);
       if (path.pathname === "/capacitor-acceptance") {
-        assert.equal(response.status, 301);
-        assert.equal(
-          response.headers.get("location"),
-          new URL(landing, path.origin).href,
-        );
+        const location = response.headers.get("location");
+        const expected = new URL(landing, path.origin).href;
+        if (response.status !== 301 || location !== expected) {
+          backend.reports.push({
+            stage: "failure",
+            error: "Unexpected Sink redirect",
+            status: response.status,
+            location,
+            expectedLocation: expected,
+          });
+          return new Response("Unexpected Sink redirect", { status: 500 });
+        }
       }
       return response;
     },
@@ -78,11 +85,13 @@ export async function verifyLink(backend) {
   assert.equal(row?.url, new URL(landing, backend.url).href);
   assert.deepEqual(
     backend.requests
-      .filter(
-        (r) =>
-          r.path === "/capacitor-acceptance" ||
-          r.path.startsWith("/__acceptance/landing"),
-      )
+      .filter((request) => {
+        const pathname = new URL(request.path, backend.url).pathname;
+        return (
+          pathname === "/capacitor-acceptance" ||
+          pathname === "/__acceptance/landing"
+        );
+      })
       .map((r) => [r.method, r.path, r.status]),
     [
       ["GET", "/capacitor-acceptance", 301],
