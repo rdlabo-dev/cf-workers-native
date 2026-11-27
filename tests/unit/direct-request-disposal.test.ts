@@ -55,6 +55,19 @@ test("overlapping direct runtimes restore host propagation after the final owner
   expect(globals()).toEqual(before);
 });
 
+test("same-tick disposal prevents queued direct dispatch from acquiring host hooks", async () => {
+  const before = globals();
+  const runtime = start("closing");
+  const pending = runtime.fetch(baseURL);
+  const disposal = runtime.dispose();
+  await expect(pending).rejects.toThrow("Worker runtime disposed");
+  await disposal;
+  await expect(runtime.fetch(baseURL)).rejects.toThrow(
+    "Worker runtime disposed",
+  );
+  expect(globals()).toEqual(before);
+});
+
 test("disposing a direct runtime preserves a subsequent host replacement", async () => {
   const initial = globalThis.queueMicrotask;
   const runtime = start("direct");
