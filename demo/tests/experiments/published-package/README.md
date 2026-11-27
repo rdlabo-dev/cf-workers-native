@@ -7,7 +7,7 @@ Only the native bootstrap imports `cf-workers-native/capacitor`.
 Run from the repository root, with the target devices already booted:
 
 ```sh
-CONSUMER_VERSION=0.1.5 npm run test:events:native:prepare --prefix demo
+CONSUMER_VERSION=0.1.8 npm run test:events:native:prepare --prefix demo
 node demo/tests/experiments/published-package/native.mjs ios <simulator-uuid>
 node demo/tests/experiments/published-package/native.mjs android <emulator-serial>
 ```
@@ -20,7 +20,7 @@ Miniflare server executes the Worker; an injected UI test driver operates the li
 and form. No production service is contacted.
 
 The assertions require the initial page, `/details`, exactly one POST to `/save`,
-a 303 redirect and the saved page containing exactly one submission. Evidence is
+a 303 redirect and two successful GETs of the saved page. The driver reloads that page once and checks that the submission count stays at one. Evidence is
 written under `artifacts/validation/published-<version>/onboarding/<platform>`.
 
 The generated evidence is specific to the tested version. This network-execution
