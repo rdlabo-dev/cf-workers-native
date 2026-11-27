@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { runNativeAcceptance } from "../../native/acceptance.mjs";
-import { startBackend, root } from "./backend.mjs";
+import { verifySavedNote, startBackend, root } from "./backend.mjs";
 test(
   "Inkstone registration and note creation in native WebView",
   { timeout: 600000 },
@@ -26,12 +26,7 @@ test(
           backend.reports.find((r) => r.stage === "complete").platform,
           platform,
         );
-        const note = await backend.db
-          .prepare(
-            "SELECT title FROM notes WHERE title='Capacitor acceptance note'",
-          )
-          .first();
-        assert.equal(note?.title, "Capacitor acceptance note");
+        await verifySavedNote(backend.db);
       },
     });
   },

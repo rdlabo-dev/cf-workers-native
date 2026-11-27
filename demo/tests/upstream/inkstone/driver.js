@@ -18,6 +18,20 @@
     ).set.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   };
+  const body = "買い物メモ 📝 — café と牛乳";
+  const editor = () =>
+    document.querySelector(".cm-content[contenteditable=true]");
+  const restoredBody = () => {
+    const content = editor();
+    if (!content) return false;
+    // Inkstone's Markdown rendering adds a newline after its final paragraph.
+    return (
+      content.textContent === body ||
+      (content.textContent === body + "\n" &&
+        content.querySelector(".cm-live-block p[data-line='0']")
+          ?.textContent === body)
+    );
+  };
   try {
     if (!sessionStorage.getItem("acceptance-created")) {
       await wait(
@@ -45,13 +59,30 @@
           document.querySelector('input[aria-label="Note title"]')?.value ===
             "Capacitor acceptance note",
       );
+      await wait(editor);
+      editor().focus();
+      const clipboard = new DataTransfer();
+      clipboard.setData("text/plain", body);
+      editor().dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: clipboard,
+        }),
+      );
       // Reload only after the original autosave request has persisted server-side.
       const end = Date.now() + 15000;
       while (Date.now() < end) {
         const res = await fetch("/api/notes");
-        const text = await res.text();
-        if (text.includes("Capacitor acceptance note")) {
-          sessionStorage.setItem("acceptance-created", "1");
+        const { notes } = await res.json();
+        const note = notes.find(
+          (note) => note.title === "Capacitor acceptance note",
+        );
+        if (
+          note &&
+          (await (await fetch(`/api/notes/${note.id}`)).json()).content === body
+        ) {
+          sessionStorage.setItem("acceptance-created", note.id);
           location.reload();
           return;
         }
@@ -65,6 +96,25 @@
         document.querySelector('input[aria-label="Note title"]')?.value ===
           "Capacitor acceptance note",
     );
+    if (!restoredBody()) {
+      const noteId = sessionStorage.getItem("acceptance-created");
+      const option = () => document.getElementById("note-option-" + noteId);
+      await wait(option);
+      option().click();
+      const mobileEdit = [
+        ...document.querySelectorAll("nav.mobile-bottom-nav button"),
+      ].find((button) => button.textContent.trim() === "Edit");
+      if (mobileEdit) {
+        await wait(() => !mobileEdit.disabled);
+        mobileEdit.click();
+      }
+    }
+    await wait(restoredBody);
+    const saved = await fetch(
+      "/api/notes/" + sessionStorage.getItem("acceptance-created"),
+    );
+    if (!saved.ok || (await saved.json()).content !== body)
+      throw Error("Unexpected stored note after reload");
     await report({
       stage: "complete",
       platform: window.Capacitor?.getPlatform?.() ?? "browser",
@@ -73,6 +123,7 @@
     await report({
       stage: "failure",
       error: String(error),
+      editorText: editor()?.textContent,
       text: document.body.innerText,
     });
   }
