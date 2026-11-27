@@ -74,18 +74,20 @@ export async function verifyDraft(db) {
   });
   const { results: items } = await db
     .prepare(
-      "SELECT description, quantity, unit_price_cents, amount_cents FROM invoice_items WHERE invoice_id = ? ORDER BY position, id",
+      "SELECT position, description, quantity, unit_price_cents, amount_cents FROM invoice_items WHERE invoice_id = ? ORDER BY position, id",
     )
     .bind(id)
     .all();
   assert.deepEqual(items, [
     {
+      position: 0,
       description: "Native line item",
       quantity: 2,
       unit_price_cents: 1250,
       amount_cents: 2500,
     },
     {
+      position: 1,
       description: "設計 & café + 仕上げ",
       quantity: 1.5,
       unit_price_cents: 320,
