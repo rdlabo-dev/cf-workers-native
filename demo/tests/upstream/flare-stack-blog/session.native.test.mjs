@@ -28,6 +28,7 @@ async function seedUser(db) {
 async function sessionFixture() {
   let worker;
   let authenticatedHeaders;
+  let relaunch = false;
   const driver = await build({
     stdin: {
       contents: await readFile(
@@ -82,7 +83,7 @@ async function sessionFixture() {
         heading = "reader@example.com";
       }
       return new Response(
-        `<html><body data-auth-origin="${origin}"><h1>${heading}</h1></body></html>`,
+        `<html><body data-auth-origin="${origin}" data-relaunch="${relaunch}"><h1>${heading}</h1></body></html>`,
         {
           headers: { "content-type": "text/html", "cache-control": "no-store" },
         },
@@ -96,6 +97,9 @@ async function sessionFixture() {
     return {
       ...backend,
       db: initialized.db,
+      afterStop() {
+        relaunch = true;
+      },
       async checkRevocation() {
         assert.ok(
           authenticatedHeaders?.cookie,
@@ -116,7 +120,7 @@ async function sessionFixture() {
   }
 }
 test(
-  "configured Better Auth native session survives reload and is revoked on logout",
+  "configured Better Auth native session survives reload and process restart, then is revoked on logout",
   { timeout: 600000 },
   async () => {
     const backend = await sessionFixture();
@@ -129,6 +133,7 @@ test(
       workerConfig: fileURLToPath(new URL("worker.jsonc", import.meta.url)),
       kvExecution: { KV: "remote" },
       render: "/session-test",
+      restart: { stage: "ready-for-restart", afterStop: backend.afterStop },
       artifacts: join(root, "../session-native"),
       validate: async (backend, platform) => {
         assert.equal(
@@ -159,7 +164,7 @@ test(
           backend.requests
             .filter((r) => r.path === "/session-test/account")
             .map((r) => r.status),
-          [200, 200, 401],
+          [200, 200, 200, 401],
         );
         for (const path of ["/api/auth/sign-in/email", "/api/auth/sign-out"]) {
           const posts = backend.requests.filter(
