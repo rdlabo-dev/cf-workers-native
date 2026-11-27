@@ -29,6 +29,13 @@ async function sessionFixture(expireOnStop = false) {
   let worker;
   let authenticatedHeaders;
   let relaunch = false;
+  let restoredTokenMatches;
+  const sessionToken = (cookie) =>
+    cookie
+      ?.split(/;\s*/)
+      .find((pair) =>
+        /^(?:__Secure-)?better-auth\.session_token=.+/.test(pair),
+      );
   const driver = await build({
     stdin: {
       contents: await readFile(
@@ -47,6 +54,17 @@ async function sessionFixture(expireOnStop = false) {
     dispatch: async (url, init) => {
       const { pathname, origin } = new URL(url);
       if (!pathname.startsWith("/session-test")) {
+        if (
+          expireOnStop &&
+          relaunch &&
+          pathname === "/api/auth/get-session" &&
+          restoredTokenMatches === undefined
+        ) {
+          const previous = sessionToken(authenticatedHeaders?.cookie);
+          restoredTokenMatches = Boolean(
+            previous && sessionToken(init.headers.cookie) === previous,
+          );
+        }
         const response = await worker.dispatchFetch(url, init);
         // Only expose the anonymous, read-only CORS control in this fixture.
         if (
@@ -56,8 +74,9 @@ async function sessionFixture(expireOnStop = false) {
           ["capacitor://localhost", "https://localhost"].includes(
             init.headers.origin,
           ) &&
-          !init.headers.cookie &&
-          !init.headers.authorization
+          !init.headers.authorization &&
+          response.ok &&
+          (await response.clone().json()) === null
         ) {
           const headers = new Headers(response.headers);
           headers.set("access-control-allow-origin", init.headers.origin);
@@ -107,6 +126,12 @@ async function sessionFixture(expireOnStop = false) {
         relaunch = true;
       },
       async checkRevocation() {
+        if (expireOnStop)
+          assert.equal(
+            restoredTokenMatches,
+            true,
+            "Expected the previous session token on the first session lookup after relaunch",
+          );
         assert.ok(
           authenticatedHeaders?.cookie,
           "Expected the signed-in test session",
