@@ -157,6 +157,36 @@ test("direct stream constructors use the active request volume", async () => {
   expect(fs.existsSync("/tmp/stream")).toBe(false);
 });
 
+test("copyFile replaces the destination entry and leaves other references intact", () => {
+  fs.registerVirtualFiles({ "/bundle/new-file": "new" });
+  for (const source of ["/tmp/source", "/bundle/new-file"]) {
+    runWithTemporaryFiles(() => {
+      fs.writeFileSync("/tmp/source", "new");
+      fs.writeFileSync("/tmp/target", "old");
+      fs.linkSync("/tmp/target", "/tmp/alias");
+      fs.symlinkSync("/tmp/target", "/tmp/symlink");
+      const fd = fs.openSync("/tmp/target", "r");
+      try {
+        fs.copyFileSync(source, "/tmp/symlink");
+        expect(fs.lstatSync("/tmp/symlink").isFile()).toBe(true);
+        expect(fs.readFileSync("/tmp/symlink", "utf8")).toBe("new");
+        expect(fs.readFileSync("/tmp/target", "utf8")).toBe("old");
+        fs.copyFileSync(source, "/tmp/target", fs.constants.COPYFILE_FICLONE);
+        expect(fs.readFileSync("/tmp/target", "utf8")).toBe("new");
+        expect(fs.readFileSync("/tmp/alias", "utf8")).toBe("old");
+        expect(fs.readFileSync(fd, "utf8")).toBe("old");
+        fs.symlinkSync("/tmp/alias", "/tmp/dangling");
+        fs.unlinkSync("/tmp/alias");
+        fs.copyFileSync(source, "/tmp/dangling", fs.constants.COPYFILE_EXCL);
+        expect(fs.lstatSync("/tmp/dangling").isFile()).toBe(true);
+        expect(fs.existsSync("/tmp/alias")).toBe(false);
+      } finally {
+        fs.closeSync(fd);
+      }
+    });
+  }
+});
+
 test("embedded files can be copied into temporary files without exposing mutable storage", async () => {
   fs.registerVirtualFiles({ "/bundle/copy-source": "original" });
   const bytes = fs.readFileSync("/bundle/copy-source") as Uint8Array;
@@ -315,36 +345,6 @@ test("streams created in an ended request retain their volume when consumed in a
       expect(
         held.run(() => fs.readFileSync("/tmp/lifetime-write", "utf8")),
       ).toBe("changed");
-    });
-  }
-});
-
-test("copyFile replaces the destination entry and leaves other references intact", () => {
-  fs.registerVirtualFiles({ "/bundle/new-file": "new" });
-  for (const source of ["/tmp/source", "/bundle/new-file"]) {
-    runWithTemporaryFiles(() => {
-      fs.writeFileSync("/tmp/source", "new");
-      fs.writeFileSync("/tmp/target", "old");
-      fs.linkSync("/tmp/target", "/tmp/alias");
-      fs.symlinkSync("/tmp/target", "/tmp/symlink");
-      const fd = fs.openSync("/tmp/target", "r");
-      try {
-        fs.copyFileSync(source, "/tmp/symlink");
-        expect(fs.lstatSync("/tmp/symlink").isFile()).toBe(true);
-        expect(fs.readFileSync("/tmp/symlink", "utf8")).toBe("new");
-        expect(fs.readFileSync("/tmp/target", "utf8")).toBe("old");
-        fs.copyFileSync(source, "/tmp/target", fs.constants.COPYFILE_FICLONE);
-        expect(fs.readFileSync("/tmp/target", "utf8")).toBe("new");
-        expect(fs.readFileSync("/tmp/alias", "utf8")).toBe("old");
-        expect(fs.readFileSync(fd, "utf8")).toBe("old");
-        fs.symlinkSync("/tmp/alias", "/tmp/dangling");
-        fs.unlinkSync("/tmp/alias");
-        fs.copyFileSync(source, "/tmp/dangling", fs.constants.COPYFILE_EXCL);
-        expect(fs.lstatSync("/tmp/dangling").isFile()).toBe(true);
-        expect(fs.existsSync("/tmp/alias")).toBe(false);
-      } finally {
-        fs.closeSync(fd);
-      }
     });
   }
 });
