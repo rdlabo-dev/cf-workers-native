@@ -1,3 +1,4 @@
+import { usePropagation } from "./propagation.js";
 import * as hooks from "./hooks.js";
 export * from "./hooks.js";
 import { contextAware, addCallbackBinding } from "./callbacks.js";
@@ -71,7 +72,7 @@ export class AsyncLocalStorage<Store = unknown> {
     storageInstances.add(this);
     // An unused import must not mutate timer/global ownership. Install only
     // when a Worker actually starts using context propagation.
-    installAsyncContextPropagation();
+    usePropagation(options, installAsyncContextPropagation);
   }
 
   get name() {
@@ -136,11 +137,9 @@ export class AsyncLocalStorage<Store = unknown> {
   }
 }
 
-let propagated = false;
 /** Patch Promise/timers/microtasks once per realm. Safe to call repeatedly. */
 function installAsyncContextPropagation(): void {
-  if (propagated || getExecutionEnvironment() === "cloudflare-workers") return;
-  propagated = true;
+  if (getExecutionEnvironment() === "cloudflare-workers") return;
   const then = Promise.prototype.then;
   Promise.prototype.then = function <T, R1 = T, R2 = never>(
     this: Promise<T>,

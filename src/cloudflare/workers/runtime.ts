@@ -127,6 +127,7 @@ export abstract class FetchRuntime<Env = Record<string, unknown>> {
       response = await Promise.race([
         Promise.resolve().then(() => {
           request.signal.throwIfAborted();
+          if (this.disposed) throw new Error("Worker runtime disposed");
           return this.dispatch(request, this.env, ctx);
         }),
         cancelled,
