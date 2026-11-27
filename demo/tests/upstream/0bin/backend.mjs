@@ -86,5 +86,11 @@ export async function verifyPastes(backend, report) {
       !envelope.includes(Buffer.from("Capacitor encrypted acceptance")),
     );
     assert.ok(!envelope.includes(Buffer.from("色見本.png")));
+    if (row.kind === "file") {
+      // Either prefix would expose the uploaded PNG in raw or base64 form.
+      const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+      assert.ok(!envelope.includes(signature));
+      assert.ok(!envelope.includes(Buffer.from("iVBORw0KGgo")));
+    }
   }
 }
