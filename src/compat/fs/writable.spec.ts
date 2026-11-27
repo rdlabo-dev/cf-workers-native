@@ -157,6 +157,14 @@ test("direct stream constructors use the active request volume", async () => {
   expect(fs.existsSync("/tmp/stream")).toBe(false);
 });
 
+test("copyFile validates the source path before checking destination permissions", () => {
+  for (const source of [null, {}, 42]) {
+    expect(() => fs.copyFileSync(source, "/bundle/readonly")).toThrow(
+      expect.objectContaining({ code: "ERR_INVALID_ARG_TYPE" }),
+    );
+  }
+});
+
 test("copyFile replaces the destination entry and leaves other references intact", () => {
   fs.registerVirtualFiles({ "/bundle/new-file": "new" });
   for (const source of ["/tmp/source", "/bundle/new-file"]) {
