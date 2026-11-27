@@ -34,6 +34,7 @@ export async function runNativeAcceptance({
   expectedMode = "worker",
   render = "/",
   validate,
+  restartAfterStage,
   platform = process.env.UPSTREAM_PLATFORM,
   device = process.env.UPSTREAM_DEVICE,
   shell = defaultShell,
@@ -249,31 +250,41 @@ export async function runNativeAcceptance({
       await run("adb", ["-s", device, "shell", "pm", "clear", appId]);
     }
     const launched = Date.now();
-    if (platform === "ios")
-      await run("xcrun", [
-        ...(physicalIOS
-          ? [
-              "devicectl",
-              "device",
-              "process",
-              "launch",
-              "--terminate-existing",
-              "--device",
-              device,
-            ]
-          : ["simctl", "launch", "--terminate-running-process", device]),
-        appId,
-      ]);
-    else
-      await run("adb", [
-        "-s",
-        device,
-        "shell",
-        "am",
-        "start",
-        "-n",
-        `${appId}/.MainActivity`,
-      ]);
+    const launch = async () => {
+      if (platform === "ios")
+        await run("xcrun", [
+          ...(physicalIOS
+            ? [
+                "devicectl",
+                "device",
+                "process",
+                "launch",
+                "--terminate-existing",
+                "--device",
+                device,
+              ]
+            : ["simctl", "launch", "--terminate-running-process", device]),
+          appId,
+        ]);
+      else
+        await run("adb", [
+          "-s",
+          device,
+          "shell",
+          "am",
+          "start",
+          "-n",
+          `${appId}/.MainActivity`,
+        ]);
+    };
+    await launch();
+    if (restartAfterStage) {
+      await waitForAcceptance(backend, timeout, restartAfterStage);
+      if (platform === "android")
+        await run("adb", ["-s", device, "shell", "am", "force-stop", appId]);
+      // iOS launch above terminates the existing process on both host types.
+      await launch();
+    }
     await waitForAcceptance(backend, timeout);
     await validate(backend, platform);
     await writeFile(

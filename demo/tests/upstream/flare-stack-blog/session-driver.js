@@ -30,7 +30,14 @@ import { createAuthClient } from "better-auth/client";
       return result.data?.user.email;
     }
     const email = "reader@example.com";
+    const relaunched = document.body.dataset.relaunch === "true";
     if (location.pathname === "/session-test") {
+      if (relaunched) {
+        if ((await user()) !== email)
+          throw Error("Session lost on process restart");
+        location.href = "/session-test/account";
+        return;
+      }
       try {
         const direct = createAuthClient({ baseURL: origin });
         let blocked = false;
@@ -65,9 +72,13 @@ import { createAuthClient } from "better-auth/client";
         (await user()) !== email
       )
         throw Error("Expected authenticated page");
-      if (!sessionStorage.getItem("reloaded")) {
+      if (!relaunched && !sessionStorage.getItem("reloaded")) {
         sessionStorage.setItem("reloaded", "1");
         location.reload();
+        return;
+      }
+      if (!relaunched) {
+        await report({ stage: "ready-for-restart" });
         return;
       }
       const result = await client.signOut();
