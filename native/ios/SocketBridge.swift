@@ -1,7 +1,6 @@
 import Foundation
 import Network
 import Security
-import Capacitor
 
 /// TCP byte transport. All state and completions belong to one serial queue.
 final class SocketBridge: @unchecked Sendable {
@@ -10,9 +9,9 @@ final class SocketBridge: @unchecked Sendable {
         let transport: NWConnection
         var encrypted = false
         var host = ""
-        var opening: ((Result<PluginCallResultData, Error>) -> Void)?
-        var reading: ((Result<PluginCallResultData, Error>) -> Void)?
-        var writing: ((Result<PluginCallResultData, Error>) -> Void)?
+        var opening: Completion?
+        var reading: Completion?
+        var writing: Completion?
         var closeWaiters: [() -> Void] = []
         var cancelled = false
         var reset = false
@@ -31,7 +30,7 @@ final class SocketBridge: @unchecked Sendable {
     private let queue = DispatchQueue(label: "jp.rdlabo.workerscapacitor.sockets")
     private var values: [String: Connection] = [:]
     private var stopped = false
-    typealias Completion = (Result<PluginCallResultData, Error>) -> Void
+    typealias Completion = (Result<[String: Any], Error>) -> Void
     private func close(_ value: Connection, error: Error = Failure.closed, completion: (() -> Void)? = nil) {
         if let completion {
             value.releaseRequested = true
@@ -87,6 +86,11 @@ final class SocketBridge: @unchecked Sendable {
                     value.ready = true
                     let remote = host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
                     value.opening?(.success(["remoteAddress": remote])); value.opening = nil
+                    self.pump(value)
+                case .failed(.posix(.ENETDOWN)) where value.ready && value.ended && !value.encrypted && !value.eof:
+                    // Network.framework can report ENETDOWN after both peers
+                    // send FIN, before the queued receive delivers the final
+                    // bytes and EOF. Let receive report the inbound outcome.
                     self.pump(value)
                 case .waiting(let error), .failed(let error):
                     // Once EOF and the final send have completed, a late

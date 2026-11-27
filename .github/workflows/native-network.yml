@@ -14,6 +14,7 @@ on:
       - "demo/package.json"
       - "demo/src/workers/hono/**"
       - "demo/tests/native/network/**"
+      - "demo/tests/native/ios-socket-half-close/**"
       - "demo/tests/fixtures/network/**"
       - "demo/tests/fixtures/apps/packaged-native/**"
       - "demo/tests/fixtures/workers/rendering/**"
@@ -71,6 +72,8 @@ jobs:
       - name: Run the network contract on iOS
         if: matrix.platform == 'ios'
         run: |
+          swiftc -swift-version 5 native/ios/SocketBridge.swift demo/tests/native/ios-socket-half-close/Probe.swift -o "$RUNNER_TEMP/socket-half-close"
+          "$RUNNER_TEMP/socket-half-close"
           device=$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
           xcrun simctl boot "$device"
           xcrun simctl bootstatus "$device" -b
