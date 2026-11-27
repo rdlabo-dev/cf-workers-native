@@ -24,5 +24,5 @@ with tempfile.TemporaryDirectory(prefix="cf-native-socket-eof-") as temporary:
     classes = work / "classes"
     classes.mkdir()
     subprocess.run(["javac", "-cp", classpath, "-d", str(classes), *map(str, work.glob("*.java"))], check=True)
-    for mode in ["close", "inactive", "shutdown", "reset"]:
+    for mode in ["close", "inactive", "shutdown", "reset", "late-read"]:
         subprocess.run(["java", "-cp", str(classes) + os.pathsep + classpath, "jp.rdlabo.workerscapacitor.EofHarness", mode], check=True)

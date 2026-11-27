@@ -35,13 +35,14 @@ final class WorkerSockets {
         final ArrayDeque<byte[]> chunks = new ArrayDeque<>();
         SocketChannel channel;
         Result reading, watching, upgrading;
-        String host; int port;
+        String host, terminalError; int port;
         int count, offset;
         boolean ready, closed, eof, ended, writing, reset, encrypted, closeNotify, inboundEndQueued;
         Connection(String id, Result opening) { this.id=id; this.opening=opening; }
         void fail(String message) {
             if (closed) return;
             closed=true;
+            terminalError=message;
             if(upgrading!=null) { Result pending=upgrading; upgrading=null; pending.reject(message); }
             if (!ready) { ready=true; opening.reject(message); }
             if (reading!=null) {
@@ -204,7 +205,9 @@ final class WorkerSockets {
         Connection connection=connections.get(id);
         if(connection==null) { result.reject("Unknown socket handle"); return; }
         connection.channel.eventLoop().execute(() -> {
-            if((connection.closed && !(allowReset && connection.reset)) || !connection.ready) result.reject("Socket is not connected"); else action.accept(connection);
+            if(connection.closed && !(allowReset && connection.reset)) result.reject(connection.terminalError);
+            else if(!connection.ready) result.reject("Socket is not connected");
+            else action.accept(connection);
         });
     }
     void watch(String id,Result result) {
