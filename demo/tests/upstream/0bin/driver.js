@@ -81,6 +81,18 @@
           throw Error(
             "Decrypted image has unexpected pixels: " + pixels.join(","),
           );
+        // Owner access still permits reading the encrypted file with an incorrect fragment.
+        const correct = location.hash;
+        location.hash = (correct[1] === "A" ? "B" : "A") + correct.slice(2);
+        await wait(
+          () =>
+            document.querySelector('[role="alert"] h1')?.textContent ===
+              "wrong or damaged key" && !preview(),
+        );
+        location.hash = correct;
+        await wait(
+          () => preview()?.naturalWidth === 2 && preview()?.naturalHeight === 1,
+        );
         await report({
           stage: "complete",
           id: filePhase,
