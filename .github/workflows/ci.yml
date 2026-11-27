@@ -234,12 +234,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          # PR caches serve retries on that PR. A full main run also seeds
+          # the default-branch cache for later pull requests.
           cache: gradle
           cache-dependency-path: |
             demo/android/**/*.gradle
             demo/android/gradle/wrapper/gradle-wrapper.properties
             native/android/build.gradle
             demo/opennext/package.json
+            demo/tests/scripts/prepare-upstream.mjs
       - run: npm install --prefix demo/opennext
         if: matrix.native
       - name: Enable emulator acceleration
