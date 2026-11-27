@@ -6,6 +6,7 @@ import {
 } from "../../browser/fetch/native-network.js";
 let restore: (() => void) | undefined;
 afterEach(() => {
+  vi.unstubAllGlobals();
   restore?.();
   restore = undefined;
 });
@@ -98,6 +99,48 @@ it("bounds writes and keeps the read half alive after end", async () => {
   expect((await reader.read()).done).toBe(true);
   await socket.closed;
   expect(call.mock.calls.at(-1)?.[1]).toBe("socketClose");
+});
+
+it.each(["10.0.2.2", "service.123"])(
+  "opens %s:80 in WebViews with opaque TCP URLs",
+  async (host) => {
+    const OriginalURL = URL;
+    vi.stubGlobal(
+      "URL",
+      class extends OriginalURL {
+        constructor(input: string, base?: string) {
+          super(input.startsWith("tcp://") ? "data:,opaque" : input, base);
+        }
+      },
+    );
+    const call = vi.fn<NativeCall>(async (_, method) =>
+      method === "socketWatch" ? new Promise(() => {}) : {},
+    );
+    restore = setNativeCall(call);
+    const socket = connect(`${host}:80`);
+    await socket.opened;
+    expect(call).toHaveBeenCalledWith("WorkersCapacitor", "socketOpen", {
+      id: expect.any(String),
+      host,
+      port: 80,
+      tls: false,
+    });
+    await socket.close();
+  },
+);
+
+it.each([
+  "host:0",
+  "host:65536",
+  "wrong/path:80",
+  "user@host:80",
+  "[::1:80",
+  "host]:443",
+])("rejects invalid authority %s before native dispatch", (address) => {
+  const call = vi.fn<NativeCall>();
+  restore = setNativeCall(call);
+  expect(() => connect(address)).toThrow(TypeError);
+  expect(call).not.toHaveBeenCalled();
 });
 
 it("normalizes bracketed and unbracketed IPv6 authorities", async () => {
