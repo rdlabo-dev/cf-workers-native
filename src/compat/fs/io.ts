@@ -153,15 +153,14 @@ export function installIo(api: any, promises: any) {
     );
   const readCallback = api.read;
   api.read = (fd: number, ...args: any[]) => {
-    if (typeof args[0] === "function")
-      return readCallback(fd, Buffer.alloc(16384), args[0]);
-    const options = args[0];
+    const callbackOnly = typeof args[0] === "function";
+    const options = callbackOnly ? {} : args[0];
     if (
       options &&
       typeof options === "object" &&
       !ArrayBuffer.isView(options)
     ) {
-      const callback = args[1];
+      const callback = callbackOnly ? args[0] : args[1];
       const {
         buffer = Buffer.alloc(16384),
         offset = 0,
@@ -178,7 +177,21 @@ export function installIo(api: any, promises: any) {
       validateUint32(length, "options.length");
       validatePosition(position, "options.position");
       validateFunction(callback, "callback");
-      return readCallback(fd, buffer, offset, length, position, callback);
+      if (length !== 0 && offset + length > buffer.byteLength)
+        throw new ERR_INVALID_ARG_VALUE(
+          "offset",
+          "must be >= 0 and <= buffer.length",
+        );
+      let count: number;
+      try {
+        count =
+          length === 0 ? 0 : api.readSync(fd, buffer, offset, length, position);
+      } catch (error) {
+        queueMicrotask(() => callback(error));
+        return;
+      }
+      queueMicrotask(() => callback(null, count, buffer));
+      return;
     }
     return readCallback(fd, ...args);
   };

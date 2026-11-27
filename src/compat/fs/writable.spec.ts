@@ -362,3 +362,33 @@ test("callback reads allocate a default Buffer or retain the caller's view", asy
   expect(count).toBe(2);
   expect(Array.from(storage)).toEqual([42, 42, 99, 100, 42, 42]);
 });
+
+test("callback options validate the destination range before reading", async () => {
+  await runWithTemporaryFiles(async () => {
+    fs.writeFileSync("/tmp/read-range", "a");
+    const fd = fs.openSync("/tmp/read-range", "r");
+    const run = retainTemporaryFiles();
+    const buffer = new Uint8Array(1);
+    try {
+      for (const [offset, length] of [
+        [0, 2],
+        [1, 1],
+      ]) {
+        expect(() => fs.read(fd, { buffer, offset, length }, () => {})).toThrow(
+          expect.objectContaining({ code: "ERR_INVALID_ARG_VALUE" }),
+        );
+      }
+      const result = await new Promise((resolve, reject) =>
+        fs.read(
+          fd,
+          { buffer, offset: 2, length: 0 },
+          (error: Error | null, count: number, actual: Uint8Array) =>
+            error ? reject(error) : resolve([count, actual === buffer]),
+        ),
+      );
+      expect(result).toEqual([0, true]);
+    } finally {
+      run(() => fs.closeSync(fd));
+    }
+  });
+});
