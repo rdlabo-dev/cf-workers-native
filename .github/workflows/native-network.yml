@@ -1,0 +1,97 @@
+name: Native network compatibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/native-network.yml"
+      - "src/**"
+      - "native/**"
+      - "scripts/build-*.mjs"
+      - "tsconfig.build.json"
+      - "Package.swift"
+      - "package.json"
+      - "demo/package.json"
+      - "demo/src/workers/hono/**"
+      - "demo/tests/native/network/**"
+      - "demo/tests/fixtures/network/**"
+      - "demo/tests/validation/native-network.ts"
+      - "demo/tests/scripts/*native-network.mjs"
+      - "demo/tests/scripts/network-server.mjs"
+      - "demo/tests/scripts/prepare-native-package.mjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-network-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  network:
+    name: Network (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios
+            runner: macos-26
+          - platform: android
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      NETWORK_TLS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        if: matrix.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm install
+      - run: npm install --prefix demo
+      - name: Prepare the packaged Capacitor consumer
+        run: |
+          npm run test:native:package:prepare --prefix demo
+          echo "NETWORK_REPORTS=$(jq -r .consumer demo/artifacts/native-package-consumer.json)/artifacts/network" >> "$GITHUB_ENV"
+      - name: Start the local network fixtures
+        run: |
+          node demo/tests/scripts/network-server.mjs > "$RUNNER_TEMP/network-fixture.log" 2>&1 &
+          curl --fail --silent --show-error --retry 30 --retry-delay 1 --retry-connrefused http://127.0.0.1:4201/active
+      - name: Run the network contract on iOS
+        if: matrix.platform == 'ios'
+        run: |
+          device=$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          npm run test:native:network --prefix demo -- ios "$device"
+      - name: Enable Android emulator acceleration
+        if: matrix.platform == 'android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run the network contract on Android
+        if: matrix.platform == 'android'
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: npm run test:native:network --prefix demo -- android emulator-5554
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always() && env.NETWORK_REPORTS != ''
+        with:
+          name: network-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/network-fixture.log
+            ${{ env.NETWORK_REPORTS }}/*.json
+            ${{ env.NETWORK_REPORTS }}/*.log
+          retention-days: 7
