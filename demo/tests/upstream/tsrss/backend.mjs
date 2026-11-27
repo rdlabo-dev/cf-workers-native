@@ -20,6 +20,7 @@ export async function startBackend() {
     external: ["node:*", "cloudflare:*"],
     write: false,
   });
+  const feedRequests = [];
   const worker = new Miniflare(
     convertV4MiniflareOptions({
       modules: true,
@@ -31,6 +32,23 @@ export async function startBackend() {
         TSRSS_PASSWORD: "acceptance-password",
         TSRSS_PURGE_DAYS: "30",
         TSRSS_VERSION: "acceptance",
+      },
+      outboundService(request) {
+        feedRequests.push({ method: request.method, url: request.url });
+        if (
+          request.method !== "GET" ||
+          request.url !== "https://feeds.example.invalid/design.xml"
+        )
+          return new Response("Unknown fixture feed", { status: 404 });
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0"><channel><title>設計 &amp; café</title><link>https://feeds.example.invalid/design</link>
+            <description>Offline feed</description><item><guid>imported-article</guid><title>日本語の記事</title>
+            <link>https://feeds.example.invalid/design/article</link></item></channel></rss>`,
+          {
+            headers: { "content-type": "application/rss+xml; charset=utf-8" },
+          },
+        );
       },
       d1Databases: ["DB"],
       kvNamespaces: ["SESSIONS"],
@@ -70,7 +88,7 @@ export async function startBackend() {
       driver: await readFile(new URL("driver.js", import.meta.url), "utf8"),
       dispose: () => worker.dispose(),
     });
-    return { ...backend, db, sessions };
+    return { ...backend, db, sessions, feedRequests };
   } catch (error) {
     await worker.dispose();
     throw error;
@@ -82,6 +100,18 @@ export async function validate(backend, platform) {
     platform,
   );
   assert.ok(backend.reports.some((r) => r.stage === "invalid-password"));
+  assert.deepEqual(backend.feedRequests, [
+    { method: "GET", url: "https://feeds.example.invalid/design.xml" },
+  ]);
+  const imported = await backend.db
+    .prepare(
+      "SELECT f.title AS feed, c.title AS category, a.title AS article FROM feeds f JOIN categories c ON c.id = f.category_id JOIN articles a ON a.feed_id = f.id WHERE f.url = ? AND f.user_id = 'anonymous'",
+    )
+    .bind("https://feeds.example.invalid/design.xml")
+    .all();
+  assert.deepEqual(imported.results, [
+    { feed: "設計 & café", category: "購読 & テスト", article: "日本語の記事" },
+  ]);
   const state = await backend.db
     .prepare(
       "SELECT is_read,is_starred FROM article_states WHERE user_id='anonymous' AND article_id=1",

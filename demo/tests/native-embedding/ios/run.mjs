@@ -32,8 +32,10 @@ if (lifecycle) {
 const configuration = process.env.WORKERS_BUILD_CONFIGURATION || "debug";
 if (!["debug", "release"].includes(configuration))
   throw new Error("Invalid build configuration");
-const finalMarker =
-  scenario === "broken-entry"
+const recovery = scenario === "session-recovery";
+const finalMarker = recovery
+  ? "SDK_AUTH_RECOVERY_COMPLETE"
+  : scenario === "broken-entry"
     ? "SDK_BROKEN_ENTRY_CLEANED 0"
     : scenario === "startup-failure"
       ? "SDK_STARTUP_FAILURE_CLEANED 0"
@@ -183,6 +185,11 @@ const output = await new Promise((resolve, reject) => {
     deadline.stop();
     clearTimeout(resumeTimer);
     if (error) log += `\nSDK_PROBE_FAILURE ${error.message.split("\n")[0]}\n`;
+    if (recovery)
+      log = log
+        .split("\n")
+        .filter((line) => !line.includes("⚡️"))
+        .join("\n");
     writeFileSync(`${scratch}/${scenario}.log`, log);
     child.kill();
     if (error) reject(error);
@@ -195,9 +202,30 @@ const output = await new Promise((resolve, reject) => {
       log += `\n${message}\n`;
     },
   });
+  let terminatedRenderer = false;
   let backgroundStarted = false;
   const receive = (chunk) => {
     log += chunk.toString();
+    if (recovery && !terminatedRenderer) {
+      const match = log.match(/SDK_RECOVERY_RENDERER (\d+)\r?\n/);
+      if (match) {
+        terminatedRenderer = true;
+        try {
+          const pid = Number(match[1]);
+          if (
+            pid < 2 ||
+            !run("ps", ["-p", String(pid), "-o", "comm="]).includes(
+              "WebContent",
+            )
+          )
+            throw Error("Expected the test document's WebContent process");
+          process.kill(pid, "SIGKILL");
+        } catch (error) {
+          finish(error);
+          return;
+        }
+      }
+    }
     if (log.includes("SDK_SCENE_STARTED")) deadline.sceneStarted();
     if (!memoryRecorded && log.includes("SDK_DOCUMENT Worker Home")) {
       memoryRecorded = true;
@@ -254,7 +282,7 @@ const output = await new Promise((resolve, reject) => {
     }
   });
 });
-if (scenario === "normal")
+if (scenario === "normal" && !recovery)
   for (const marker of [
     "SDK_HOOK function",
     "SDK_READY_SURVIVED_DEADLINE",
