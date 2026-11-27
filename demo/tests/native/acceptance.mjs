@@ -70,8 +70,16 @@ export async function runNativeAcceptance({
       throw error;
     }
   };
+  const supportedPlatform = platform === "ios" || platform === "android";
+  let summary;
+  let reversedPort;
   try {
-    if (!["ios", "android"].includes(platform) || !device)
+    if (!supportedPlatform)
+      throw Error("Set UPSTREAM_PLATFORM=ios|android and UPSTREAM_DEVICE");
+    await mkdir(artifacts, { recursive: true });
+    for (const suffix of ["summary.json", "error.log", "reports.json"])
+      await rm(join(artifacts, `${platform}-${suffix}`), { force: true });
+    if (!device)
       throw Error("Set UPSTREAM_PLATFORM=ios|android and UPSTREAM_DEVICE");
     if (physicalIOS && !process.env.IOS_DEVELOPMENT_TEAM)
       throw Error("Set IOS_DEVELOPMENT_TEAM for physical iOS signing");
@@ -79,7 +87,6 @@ export async function runNativeAcceptance({
       throw Error(
         "Physical iOS acceptance requires a deployed HTTPS backend; local test CAs are simulator-only",
       );
-    await mkdir(artifacts, { recursive: true });
     const bootstrapPath = bootstrapDirectory ?? join(artifacts, "bootstrap");
     await mkdir(bootstrapPath, { recursive: true });
     const bootstrap = await realpath(bootstrapPath);
@@ -247,6 +254,7 @@ export async function runNativeAcceptance({
         `tcp:${backend.url.port}`,
         `tcp:${backend.url.port}`,
       ]);
+      reversedPort = backend.url.port;
       await run("adb", ["-s", device, "shell", "pm", "clear", appId]);
     }
     const launched = Date.now();
@@ -300,8 +308,8 @@ export async function runNativeAcceptance({
         "Missing original app PID",
       );
       await waitForAcceptance(backend, timeout, restart.stage);
-      if (platform === "android")
-        await run("adb", ["-s", device, "shell", "am", "force-stop", appId]);
+      if (reversedPort)
+        await exec("adb", ["-s", device, "shell", "am", "force-stop", appId]);
       else if (physicalIOS)
         await run("xcrun", [
           "devicectl",
@@ -331,49 +339,46 @@ export async function runNativeAcceptance({
     }
     await waitForAcceptance(backend, timeout);
     await validate(backend, platform);
-    await writeFile(
-      join(artifacts, `${platform}-summary.json`),
-      JSON.stringify(
-        {
-          platform,
-          ...measurements(launched),
-          processes,
-          elapsedFlowMs: Date.now() - launched,
-          bundleBytes: (
-            await Promise.all(
-              (await readdir(join(shell, "www"), { recursive: true })).map(
-                (p) => stat(join(shell, "www", p)),
-              ),
-            )
-          )
-            .filter((s) => s.isFile())
-            .reduce((n, s) => n + s.size, 0),
-        },
-        null,
-        2,
-      ),
-    );
+    summary = {
+      platform,
+      ...measurements(launched),
+      processes,
+      elapsedFlowMs: Date.now() - launched,
+      bundleBytes: (
+        await Promise.all(
+          (await readdir(join(shell, "www"), { recursive: true })).map((p) =>
+            stat(join(shell, "www", p)),
+          ),
+        )
+      )
+        .filter((s) => s.isFile())
+        .reduce((n, s) => n + s.size, 0),
+    };
   } finally {
     try {
-      await mkdir(artifacts, { recursive: true });
-      await writeFile(
-        join(artifacts, `${platform}-reports.json`),
-        JSON.stringify(
-          { reports: backend.reports, requests: backend.requests },
-          null,
-          2,
-        ),
-      );
+      if (supportedPlatform)
+        await writeFile(
+          join(artifacts, `${platform}-reports.json`),
+          JSON.stringify(
+            { reports: backend.reports, requests: backend.requests },
+            null,
+            2,
+          ),
+        );
     } finally {
-      if (platform === "android")
-        await run("adb", [
+      if (reversedPort)
+        await exec("adb", [
           "-s",
           device,
           "reverse",
           "--remove",
-          `tcp:${backend.url.port}`,
+          `tcp:${reversedPort}`,
         ]).catch(() => {});
       await backend.close();
     }
   }
+  await writeFile(
+    join(artifacts, `${platform}-summary.json`),
+    JSON.stringify(summary, null, 2),
+  );
 }
