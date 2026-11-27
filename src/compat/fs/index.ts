@@ -11,6 +11,7 @@ import * as embedded from "./embedded.js";
 import {
   temporary,
   retainTemporaryFiles,
+  replaceTemporaryFile,
   temporaryPath,
   clearTemporaryFiles,
   writablePath,
@@ -400,16 +401,7 @@ installOperation("copyFile", (source: any, destination: any, mode = 0) => {
     (mode !== 1 || !api.existsSync(destination)) &&
     api.statSync(sourcePath, { throwIfNoEntry: false })?.isFile()
   ) {
-    // Publish a complete new inode. Open handles and aliases retain the old file.
-    const staging = temporary.mkdtempSync("/tmp/.copy-");
-    const staged = staging + "/file";
-    try {
-      if (fromTemporary) temporaryCopyFile(sourcePath, staged, 0);
-      else temporary.writeFileSync(staged, embedded.readFileSync(sourcePath));
-      temporary.renameSync(staged, destination);
-    } finally {
-      temporary.rmSync(staging, { recursive: true, force: true });
-    }
+    replaceTemporaryFile(pathOf(destination), api.readFileSync(sourcePath));
     return;
   }
   if (fromTemporary) return temporaryCopyFile(sourcePath, destination, mode);
