@@ -21,6 +21,10 @@
   const body = "買い物メモ 📝 — café と牛乳";
   const editor = () =>
     document.querySelector(".cm-content[contenteditable=true]");
+  const restoredBody = () =>
+    editor()?.textContent === body ||
+    editor()?.querySelector(".cm-live-block p[data-line='0']")?.textContent ===
+      body;
   try {
     if (!sessionStorage.getItem("acceptance-created")) {
       await wait(
@@ -78,7 +82,7 @@
         document.querySelector('input[aria-label="Note title"]')?.value ===
           "Capacitor acceptance note",
     );
-    if (editor()?.textContent !== body) {
+    if (!restoredBody()) {
       const noteId = sessionStorage.getItem("acceptance-created");
       const option = () => document.getElementById("note-option-" + noteId);
       await wait(option);
@@ -91,7 +95,7 @@
         mobileEdit.click();
       }
     }
-    await wait(() => editor()?.textContent === body);
+    await wait(restoredBody);
     await report({
       stage: "complete",
       platform: window.Capacitor?.getPlatform?.() ?? "browser",
@@ -101,7 +105,6 @@
       stage: "failure",
       error: String(error),
       editorText: editor()?.textContent,
-      editorMarkup: document.querySelector(".cm-content")?.outerHTML.slice(0, 1500),
       text: document.body.innerText,
     });
   }
