@@ -58,11 +58,6 @@ export async function nativeBackend({
           res.end("ok");
           return;
         }
-        if (req.url === "/__acceptance/driver.js") {
-          res.setHeader("content-type", "text/javascript");
-          res.end(driver);
-          return;
-        }
         const started = performance.now();
         const record = {
           method: req.method,
@@ -71,6 +66,13 @@ export async function nativeBackend({
           site: req.headers["sec-fetch-site"],
         };
         requests.push(record);
+        if (req.url === "/__acceptance/driver.js") {
+          res.setHeader("content-type", "text/javascript");
+          record.status = res.statusCode;
+          record.elapsedMs = Math.round(performance.now() - started);
+          res.end(driver);
+          return;
+        }
         const headers = { ...req.headers };
         delete headers["content-length"];
         delete headers["transfer-encoding"];

@@ -26,6 +26,12 @@ test(
           backend.reports.find((r) => r.stage === "complete").platform,
           platform,
         );
+        assert.ok(
+          backend.requests.some(
+            (r) => r.path === "/__acceptance/driver.js" && r.status === 200,
+          ),
+          "the native WebView requested the acceptance driver",
+        );
         await verifySavedNote(backend.db);
       },
     });

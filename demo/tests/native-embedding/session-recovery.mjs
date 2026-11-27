@@ -26,7 +26,7 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 let worker, db;
 const accounts = [];
 const backend = await nativeBackend({
-  driver: `const button=document.querySelector('button'); if(button)button.onclick=async()=>{
+  driver: `const button=document.querySelector('button'); if(button){button.onclick=async()=>{
    button.disabled=true;
    try {
      const login=await fetch('/api/auth/sign-in/email',{method:'POST',mode:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({email:'reader@example.com',password:'local-fixture-password'})});
@@ -35,7 +35,7 @@ const backend = await nativeBackend({
      if (!write.ok) throw Error('save '+write.status);
      location.replace('/');
    } catch(error){document.body.textContent=String(error);}
- };`,
+ }; button.disabled=false; button.textContent='Sign in and save'; }`,
   dispose: async () => worker?.dispose(),
   dispatch: async (url, init) => {
     const path = new URL(url).pathname;
@@ -58,7 +58,7 @@ const backend = await nativeBackend({
       return new Response(null, { status: 204 });
     }
     accounts.push(user?.id ?? null);
-    let content = "<button>Sign in and save</button>";
+    let content = "<button disabled>Loading sign-in…</button>";
     if (user?.id === "reader") {
       const count = await db
         .prepare("SELECT count(*) AS n FROM recovery_writes WHERE user_id=?")
