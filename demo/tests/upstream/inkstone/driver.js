@@ -96,11 +96,12 @@
         document.querySelector('input[aria-label="Note title"]')?.value ===
           "Capacitor acceptance note",
     );
+    const noteId = sessionStorage.getItem("acceptance-created");
+    const option = () => document.getElementById("note-option-" + noteId);
+    // The app can reopen the editor directly on reload, without mounting the list.
+    await wait(() => restoredBody() || option());
     if (!restoredBody()) {
-      const noteId = sessionStorage.getItem("acceptance-created");
-      const option = () => document.getElementById("note-option-" + noteId);
-      await wait(option);
-      option().click();
+      option()?.click();
       const mobileEdit = [
         ...document.querySelectorAll("nav.mobile-bottom-nav button"),
       ].find((button) => button.textContent.trim() === "Edit");
