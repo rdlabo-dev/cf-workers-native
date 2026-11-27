@@ -111,6 +111,7 @@ final class WorkerSockets {
             }
         }
         @Override public void exceptionCaught(ChannelHandlerContext context,Throwable error) {
+            if(closed) return;
             boolean peerReset = error instanceof java.io.IOException && String.valueOf(error.getMessage()).toLowerCase(java.util.Locale.ROOT).contains("reset");
             // Workers' plain TCP reset-as-EOF behavior must not turn a truncated
             // authenticated TLS stream into a successful end.
