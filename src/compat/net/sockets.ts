@@ -41,29 +41,22 @@ export function connect(
   if (!call)
     throw new Error("TCP sockets require the Capacitor native transport");
   const separator = address.lastIndexOf(":");
-  const hostname = address.slice(0, separator).replace(/^\[|\]$/g, "");
+  const authority = address.slice(0, separator);
   const portText = address.slice(separator + 1);
-  if (separator < 1 || /[\s/\\@?#]/.test(hostname) || !/^\d+$/.test(portText))
-    throw new TypeError("Invalid TCP address");
-  // Older Android WebViews treat non-special schemes as opaque URLs.
-  // Parse the authority with HTTP, retaining an explicitly supplied port 80.
-  const url = new URL(
-    `http://${hostname.includes(":") ? `[${hostname}]` : hostname}:${portText}`,
-  );
   const port = Number(portText);
-  if (
-    !url.hostname ||
-    !port ||
-    port > 65535 ||
-    url.search ||
-    url.hash ||
-    url.username ||
-    url.password ||
-    (url.pathname && url.pathname !== "/")
-  )
+  if (separator < 1 || !/^\d+$/.test(portText) || port < 1 || port > 65535)
     throw new TypeError("Invalid TCP address");
+  let host = authority;
+  if (authority.includes(":")) {
+    // Special URL schemes parse IPv6 consistently even on older WebViews.
+    const literal = authority.startsWith("[") ? authority : `[${authority}]`;
+    if (!/^\[[0-9a-f:.]+\]$/i.test(literal))
+      throw new TypeError("Invalid TCP address");
+    host = new URL(`http://${literal}/`).hostname.slice(1, -1);
+  } else if (/[\s/\\@?#<>^|\[\]\u0000]/u.test(host)) {
+    throw new TypeError("Invalid TCP address");
+  }
   const id = crypto.randomUUID();
-  const host = url.hostname.replace(/^\[|\]$/g, "");
   const directTls = options.secureTransport === "on";
   let secureCall = call;
   return transport(
