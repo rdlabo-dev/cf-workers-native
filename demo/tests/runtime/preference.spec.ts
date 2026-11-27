@@ -100,3 +100,23 @@ test("early direct requests reject and aborted requests never replay after start
   expect(results.text).toBe("ready");
   expect(results.dispatched).toBe(1);
 });
+for (const prefer of ["direct", "worker"] as const) {
+  test(`configured ${prefer} handler reads imported bindings after await`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForFunction(
+      () => typeof window.startPreferred === "function",
+    );
+    const result = await page.evaluate(async (prefer) => {
+      const runtime = window.startPreferred(prefer, { TEST_VALUE: 0 });
+      try {
+        await runtime.ready;
+        return await (await fetch("/api/imported-env")).json();
+      } finally {
+        runtime.dispose();
+      }
+    }, prefer);
+    expect(result).toEqual({ value: 0, keys: ["TEST_VALUE"] });
+  });
+}

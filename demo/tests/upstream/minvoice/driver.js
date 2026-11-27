@@ -5,8 +5,8 @@
       method: "POST",
       body: JSON.stringify({ ...data, path: location.pathname }),
     });
-  const fill = (name, value) => {
-    const el = document.getElementsByName(name)[0];
+  const fill = (name, value, index = 0) => {
+    const el = document.getElementsByName(name)[index];
     if (!el) throw Error("Missing field " + name);
     el.value = value;
     return el;
@@ -61,9 +61,17 @@
       fill("subject", "Native invoice");
       fill("item_description[]", "Native line item");
       fill("item_quantity[]", "2");
-      fill("item_unit_price[]", "12.50").form.requestSubmit();
+      fill("item_unit_price[]", "12.50");
+      document.getElementById("add-line-btn").click();
+      fill("item_description[]", "設計 & café + 仕上げ", 1);
+      fill("item_quantity[]", "1.5", 1);
+      fill("item_unit_price[]", "3.20", 1).form.requestSubmit();
     } else if (/^\/admin\/invoices\/\d+$/.test(path)) {
-      if (!document.body.innerText.includes("Native invoice"))
+      if (
+        !["Native invoice", "Native line item", "設計 & café + 仕上げ"].every(
+          (text) => document.body.innerText.includes(text),
+        )
+      )
         throw Error("Invoice missing");
       await report({
         stage: "complete",

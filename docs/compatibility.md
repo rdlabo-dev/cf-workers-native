@@ -133,9 +133,11 @@ process spawning, V8 heap access, UDP sockets and an OS terminal are not supplie
 
 - `passThroughOnException`, local WorkerEntrypoint/RPC, Cache API and HTMLRewriter
   are unsupported. Scheduled/queue/workflow lifecycles are not simulated locally.
-- `cloudflare:workers` is partial. The isolated dispatcher updates a realm-wide
-  `env` proxy; direct execution does not populate it. It is not request-local and
-  is not populated before the first dispatch. Prefer the Fetch Handler argument.
+- `cloudflare:workers` is partial. During direct and isolated fetch dispatch,
+  the imported `env` exposes the current handler's bindings. Direct handlers
+  can retain their `env` argument for callbacks outside the request's async
+  context. In isolated Workers, reads outside that context use the most recent
+  dispatch's bindings. Module initialization before first dispatch sees no bindings.
   DurableObject is a constructor shell, not a local Durable Objects runtime.
 - `Request.cf` preserves supplied values; it does not generate Cloudflare metadata.
 - [Local KV](kv.md) uses device storage without cloud replication or binding RPC.

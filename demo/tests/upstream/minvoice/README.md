@@ -4,7 +4,7 @@
 
 The test runs its original Hono entry and SQL migrations in local workerd/D1. It seeds isolated business settings, disables payment/email integrations and uses a test-only password. No production Worker, database, customer, payment or email service is contacted.
 
-The scenario signs in through the original form, creates a client and creates a draft invoice. Assertions check the saved database rows and reject a sandboxed cross-origin form submission. This is not acceptance of payment processors, email delivery, Cloudflare Access, PDF printing or every Minvoice feature.
+The scenario signs in through the original form, creates a client and creates a draft invoice with two line items through the original add-line button. The invoice detail must render both descriptions, including Japanese text and literal form delimiters. Browser and native runs check ordered D1 line items, fractional quantity and totals in cents. Assertions check the saved database rows and reject a sandboxed cross-origin form submission. This is not acceptance of payment processors, email delivery, Cloudflare Access, PDF printing or every Minvoice feature.
 
 ```sh
 npm install

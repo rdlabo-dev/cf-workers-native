@@ -1,3 +1,4 @@
+import { retainDirectRequestContext } from "../../shared/request-context.js";
 import { runWithRequestScope } from "../../shared/request-scope.js";
 import { installWebGlobals } from "../../shared/globals/web.js";
 import { createOutboundFetch } from "../../browser/fetch/outbound.js";
@@ -19,6 +20,7 @@ import type {
 
 export class DirectFetchRuntime<Env> extends FetchRuntime<Env> {
   readonly execution = "direct" as const;
+  private releaseContext?: () => void;
   private readonly releaseNetwork: (() => Promise<void>) | undefined;
   private readonly restoreWeb: () => void;
   private readonly outbound: ReturnType<typeof createOutboundFetch>;
@@ -57,12 +59,14 @@ export class DirectFetchRuntime<Env> extends FetchRuntime<Env> {
     ) as unknown as Promise<Response>;
   }
   protected override close() {
+    this.releaseContext?.();
     const closing = this.releaseNetwork?.();
     if (closing) return closing.finally(this.restoreWeb);
     this.restoreWeb();
   }
   protected dispatch(request: Request, env: Env, ctx: WorkerContext) {
-    return runWithRequestScope(() => this.worker.fetch(request, env, ctx));
+    this.releaseContext ??= retainDirectRequestContext();
+    return runWithRequestScope(() => this.worker.fetch(request, env, ctx), env);
   }
 }
 
@@ -122,6 +126,7 @@ export class PreferredFetchRuntime<Env> extends FetchRuntime<Env> {
   private handler?: WorkerHandler<Env>;
   private closed = false;
   private loadingDirect = false;
+  private releaseContext?: () => void;
   private selected?: "worker" | "direct";
   private disposeDirect?: () => void | Promise<void>;
   private startupDisposal?: Promise<void>;
@@ -262,10 +267,18 @@ export class PreferredFetchRuntime<Env> extends FetchRuntime<Env> {
         );
       return this.remote.fetch(request);
     }
+    if (this.selected === "direct") {
+      this.releaseContext ??= retainDirectRequestContext();
+      return runWithRequestScope(
+        () => this.handler!.fetch(request, env, ctx),
+        env,
+      );
+    }
     return this.handler!.fetch(request, env, ctx);
   }
   protected override close() {
     this.closed = true;
+    this.releaseContext?.();
     const pending = [
       () => this.remote?.dispose(),
       () => this.isolated?.dispose(),

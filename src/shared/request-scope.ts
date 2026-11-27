@@ -6,11 +6,11 @@ const scopes = new Set<Scope>();
 export function registerRequestScope(scope: Scope): void {
   scopes.add(scope);
 }
-export function runWithRequestScope<T>(callback: () => T): T {
+export function runWithRequestScope<T>(callback: () => T, env?: unknown): T {
   const entries = [...scopes];
   const run = (index: number): T =>
     index === entries.length
       ? callback()
       : entries[index](() => run(index + 1));
-  return runWithActiveRequest(() => run(0));
+  return runWithActiveRequest(() => run(0), env);
 }

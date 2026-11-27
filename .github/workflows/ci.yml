@@ -117,6 +117,7 @@ jobs:
           # Share browser/dependency setup for short, independent suites.
           # Keep commands sequential: each retains its original failure gate.
           - suite: build-tools-and-upstream-browser
+            native: minvoice
             commands: |
               npm run test:build-tools
               npm install --prefix authentication

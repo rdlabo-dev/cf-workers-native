@@ -116,22 +116,24 @@ export function serve(worker: WorkerHandler<unknown>) {
         body,
         signal: controller.signal,
       });
-      const response = await runWithRequestScope(() =>
-        worker.fetch(request as unknown as Request, env, {
-          props: {},
-          passThroughOnException() {
-            throw new Error(
-              "passThroughOnException is unsupported for local execution.",
-            );
-          },
-          waitUntil(promise) {
-            pending.push(
-              promise.catch((cause) => {
-                errors.push(String(cause));
-              }),
-            );
-          },
-        }),
+      const response = await runWithRequestScope(
+        () =>
+          worker.fetch(request as unknown as Request, env, {
+            props: {},
+            passThroughOnException() {
+              throw new Error(
+                "passThroughOnException is unsupported for local execution.",
+              );
+            },
+            waitUntil(promise) {
+              pending.push(
+                promise.catch((cause) => {
+                  errors.push(String(cause));
+                }),
+              );
+            },
+          }),
+        env,
       );
       if (!isResponse(response) || response.status === 0)
         throw new TypeError("worker.fetch must return a non-error Response.");
