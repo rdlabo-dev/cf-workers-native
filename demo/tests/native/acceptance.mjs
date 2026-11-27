@@ -355,30 +355,49 @@ export async function runNativeAcceptance({
         .reduce((n, s) => n + s.size, 0),
     };
   } finally {
-    try {
-      if (supportedPlatform)
-        await writeFile(
-          join(artifacts, `${platform}-reports.json`),
-          JSON.stringify(
-            { reports: backend.reports, requests: backend.requests },
-            null,
-            2,
-          ),
-        );
-    } finally {
-      if (reversedPort)
-        await exec("adb", [
-          "-s",
-          device,
-          "reverse",
-          "--remove",
-          `tcp:${reversedPort}`,
-        ]).catch(() => {});
-      await backend.close();
-    }
+    await finishNativeAcceptance({
+      artifacts,
+      platform: supportedPlatform ? platform : undefined,
+      backend,
+      device,
+      reversedPort,
+      summary,
+    });
   }
-  await writeFile(
-    join(artifacts, `${platform}-summary.json`),
-    JSON.stringify(summary, null, 2),
-  );
+}
+
+export async function finishNativeAcceptance({
+  artifacts,
+  platform,
+  backend,
+  device,
+  reversedPort,
+  summary,
+}) {
+  try {
+    if (platform)
+      await writeFile(
+        join(artifacts, `${platform}-reports.json`),
+        JSON.stringify(
+          { reports: backend.reports, requests: backend.requests },
+          null,
+          2,
+        ),
+      );
+  } finally {
+    if (reversedPort)
+      await exec("adb", [
+        "-s",
+        device,
+        "reverse",
+        "--remove",
+        `tcp:${reversedPort}`,
+      ]).catch(() => {});
+    await backend.close();
+  }
+  if (summary)
+    await writeFile(
+      join(artifacts, `${platform}-summary.json`),
+      JSON.stringify(summary, null, 2),
+    );
 }

@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runNativeAcceptance } from "./acceptance.mjs";
+import { runNativeAcceptance, finishNativeAcceptance } from "./acceptance.mjs";
 import { waitForAcceptance } from "./reports.mjs";
 
 for (const refreshed of [false, true]) {
@@ -115,3 +115,44 @@ test("physical iOS rejects a local test CA and still closes the backend", async 
     await rm(artifacts, { recursive: true });
   }
 });
+
+for (const failure of ["reports", "close"]) {
+  test(`a validated attempt publishes no success summary when ${failure} fails`, async () => {
+    const artifacts = await mkdtemp(
+      join(tmpdir(), "native-acceptance-finalize-"),
+    );
+    let closed = false;
+    try {
+      const reports = join(artifacts, "ios-reports.json");
+      if (failure === "reports") await mkdir(reports);
+      const backend = {
+        reports: [{ stage: "complete" }],
+        requests: [],
+        async close() {
+          closed = true;
+          if (failure === "close") throw Error("backend close failed");
+        },
+      };
+      await assert.rejects(
+        finishNativeAcceptance({
+          artifacts,
+          platform: "ios",
+          backend,
+          summary: { platform: "ios" },
+        }),
+        failure === "close" ? /backend close failed/ : { code: "EISDIR" },
+      );
+      assert.equal(closed, true);
+      await assert.rejects(readFile(join(artifacts, "ios-summary.json")), {
+        code: "ENOENT",
+      });
+      if (failure === "close")
+        assert.deepEqual(
+          JSON.parse(await readFile(reports, "utf8")).reports,
+          backend.reports,
+        );
+    } finally {
+      await rm(artifacts, { recursive: true, force: true });
+    }
+  });
+}
