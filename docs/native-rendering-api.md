@@ -145,7 +145,7 @@ Worker responses. External redirects are rejected. On iOS, the page-side Fetch
 bridge models redirect metadata with JavaScript properties rather than browser
 internal Response slots. The iOS multipart form supplement covers same-window
 local POST submissions; named windows and iframe targets are not supported.
-Observed Origin and Fetch Metadata headers are preserved. When iOS omits a form Origin, the bridge recovers it only from a verified local main-frame WebKit security origin. Opaque or unknown initiators remain untrusted. Other native requests can still omit Origin; retain CSRF protection, such as a validated token. Origin is not authentication.
+Observed Origin and Fetch Metadata headers are preserved. When iOS omits a form Origin, the bridge recovers it only from a verified local main-frame WebKit security origin. Opaque or unknown initiators remain untrusted. For state-changing document fetches missing Origin, iOS also checks the sending main frame. Android recovers the local origin for explicit same-origin fetches from a same-origin top-level window client. Other native requests can still omit Origin; retain CSRF protection, such as a validated token. Origin is not authentication.
 
 The native host/child lifecycle, pending-request timeouts and explicit disposal
 are implemented. App process termination/relaunch, background/foreground,

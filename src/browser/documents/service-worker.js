@@ -83,7 +83,7 @@ self.addEventListener("fetch", (event) => {
         url.pathname.startsWith("/_capacitor_")
       )
         return fetch(event.request);
-      return dispatch(event.request);
+      return dispatch(event.request, event.clientId);
     })(),
   );
 });
@@ -112,7 +112,7 @@ function hostReady(host, signal) {
     }
   });
 }
-async function dispatch(request) {
+async function dispatch(request, clientId) {
   const deadline = Date.now() + 10000;
   let host = (
     await self.clients.matchAll({ type: "window", includeUncontrolled: true })
@@ -143,11 +143,28 @@ async function dispatch(request) {
       ? undefined
       : await readUpload(request);
   request.signal.throwIfAborted();
+  const requestHeaders = Object.fromEntries(request.headers);
+  // For an explicit same-origin fetch, Chromium can omit Origin from the
+  // FetchEvent. Clients.get only exposes same-origin clients to this worker.
+  if (
+    clientId &&
+    request.mode === "same-origin" &&
+    !["GET", "HEAD", "OPTIONS"].includes(request.method) &&
+    !request.headers.has("Origin")
+  ) {
+    const client = await self.clients.get(clientId);
+    if (
+      client?.type === "window" &&
+      client.frameType === "top-level" &&
+      new URL(client.url).origin === self.location.origin
+    )
+      requestHeaders.origin = self.location.origin;
+  }
   const message = {
     id: crypto.randomUUID(),
     url: request.url,
     method: request.method,
-    headers: Object.fromEntries(request.headers),
+    headers: requestHeaders,
     body,
     stream: true,
   };

@@ -10,7 +10,54 @@ Native tests use the public `workersCapacitor` API with remote Worker execution 
 
 The unchanged application passes this scenario on Android, but fails on iOS. Its `createAuthClient()` call omits `baseURL`, so Better Auth derives it from `window.location.origin` and rejects `capacitor://localhost` with `BetterAuthError: Invalid base URL`. The HTML and assets load, but client initialization stops and the navigation menu cannot open. SSR output alone is not acceptance. The iOS test deliberately retains the same functional assertions and fails until this boundary is resolved.
 
-An explicit HTTPS authentication base URL is a possible application configuration change, but its session, cookie and request routing behavior has not been validated here. This fixture does not patch the original application, rewrite Better Auth, or spoof the WebView origin.
+### Configured Better Auth client
+
+A separate acceptance page uses Better Auth 1.7.6 from the upstream lockfile and the original
+Worker auth handler with a verified local test account. Set the server's
+`BETTER_AUTH_URL` and the client's `baseURL` to the canonical HTTPS Worker
+origin. In the native document, route that client's auth requests through the
+local document path. For example, with the bridge changes in this checkout:
+
+```js
+const origin = "https://your-worker.example";
+const auth = createAuthClient({
+  baseURL: origin,
+  fetchOptions: {
+    customFetchImpl(input, init) {
+      const url = new URL(input);
+      if (url.origin !== origin || !url.pathname.startsWith("/api/auth/"))
+        throw new Error("Unexpected authentication URL");
+      return fetch(url.pathname + url.search, { ...init, mode: "same-origin" });
+    },
+  },
+});
+```
+
+The native transport uses its Worker cookie store. Better Auth receives the
+canonical origin on sign-in and sign-out and retains its origin checks. On iOS
+26.5 and Android API 35 the test signs in, opens a protected test page, reloads
+it and signs out. It checks D1 session removal and looks up the previous
+session with cookie caching disabled. Upstream enables a five-minute cookie
+cache; these checks establish database-backed revocation only.
+
+The same test isolates the earlier anonymous-session failure. Direct HTTPS
+requests both returned 200 at the server. The WebView could read the response
+only when the test endpoint sent credentialed CORS headers for its exact
+origin. The configured sign-in flow uses same-origin fetches throughout.
+
+Run the configured acceptance with the same prepared upstream checkout and
+native shell as the original article test. Use `session.native.test.mjs` in
+place of `native.test.mjs` for either platform. The iOS shell must include
+the updated native plugin and the Android build must include the updated
+document service worker. To refresh a shell that already has an older local
+package installed, run these commands from the repository root:
+
+```sh
+npm run build
+pack_dir=$(mktemp -d)
+package_file=$(npm pack --silent --pack-destination "$pack_dir")
+npm install --prefix demo/opennext --no-save --package-lock=false "$pack_dir/$package_file"
+```
 
 ```sh
 node demo/tests/upstream/flare-stack-blog/prepare.mjs
