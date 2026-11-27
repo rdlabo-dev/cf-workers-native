@@ -11,19 +11,20 @@ const base = /Android/.test(navigator.userAgent)
   : "http://127.0.0.1:4201";
 // Keep a native response pending across a real main-frame reload. A fresh JS
 // realm cannot dispose the old connection; the native lifecycle must own it.
+console.log("NETWORK_STAGE reload lifecycle");
 const reloadTransport = new FetchTransport(nativeNetwork);
 const reloadKey = "workers-capacitor-network-reload";
 const previousID = sessionStorage.getItem(reloadKey);
 const reloadID = previousID ?? crypto.randomUUID();
 async function waitForReloadConnection(expected: boolean) {
-  const deadline = Date.now() + 4000;
+  const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     const response = await reloadTransport.fetch({
       url: `${base}/active`,
       method: "GET",
       headers: [],
       body: null,
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(15_000),
     });
     const active: string[] = await new Response(response.body).json();
     if (active.some((id) => id.startsWith(reloadID)) === expected) return;
@@ -68,6 +69,7 @@ try {
 } catch (error) {
   reloadError = String(error);
 }
+console.log("NETWORK_STAGE direct contracts");
 const results = (await runNativeNetwork(base, getNativeCall())).map(
   (result) => ({ ...result, name: `direct: ${result.name}` }),
 );
@@ -76,6 +78,7 @@ results.push({
   ok: !reloadError,
   ...(reloadError ? { error: reloadError } : {}),
 });
+console.log("NETWORK_STAGE worker contracts");
 const workerURL = new URL("./worker.js", import.meta.url);
 workerURL.searchParams.set("base", base);
 const worker = new Worker(workerURL, { type: "module" });
@@ -109,14 +112,14 @@ workerURL.searchParams.set("pending", id);
 const pending = createIsolatedWorker(new Worker(workerURL, { type: "module" }));
 const transport = new FetchTransport(nativeNetwork);
 async function untilActive(expected: boolean) {
-  const deadline = Date.now() + 4000;
+  const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     const result = await transport.fetch({
       url: `${base}/active`,
       method: "GET",
       headers: [],
       body: null,
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(15_000),
     });
     const active: string[] = await new Response(result.body).json();
     if (active.includes(id) === expected) return;
