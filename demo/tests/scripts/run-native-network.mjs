@@ -60,7 +60,7 @@ if (process.env.NETWORK_TLS === "1") {
     );
   }
 }
-run("npm", ["run", "build:native-network"], { cwd: demo });
+run("npm", ["run", "build:native-network", "--", consumer], { cwd: demo });
 await rm(join(consumer, "dist"), { recursive: true, force: true });
 await cp(join(demo, "artifacts/native-network"), join(consumer, "dist"), {
   recursive: true,
@@ -95,11 +95,23 @@ const configFile =
 const { appId } = JSON.parse(
   await readFile(join(consumer, configFile), "utf8"),
 );
+async function buildApp(command, args, options) {
+  const logPath = join(output, `${platform}-build.log`);
+  try {
+    await writeFile(logPath, run(command, args, options));
+  } catch (error) {
+    await writeFile(
+      logPath,
+      [error.message, error.stdout, error.stderr].filter(Boolean).join("\n"),
+    );
+    throw error;
+  }
+}
 let child;
 let log = "";
 try {
   if (platform === "ios") {
-    const build = run("xcodebuild", [
+    await buildApp("xcodebuild", [
       "-quiet",
       "-project",
       "ios/App/App.xcodeproj",
@@ -117,7 +129,6 @@ try {
       "CODE_SIGNING_ALLOWED=NO",
       "build",
     ]);
-    await writeFile(join(output, "ios-build.log"), build);
     run("xcrun", [
       "simctl",
       "install",
@@ -136,10 +147,9 @@ try {
       appId,
     ]);
   } else {
-    const build = run("./gradlew", ["--no-daemon", "assembleDebug"], {
+    await buildApp("./gradlew", ["--no-daemon", "assembleDebug"], {
       cwd: join(consumer, "android"),
     });
-    await writeFile(join(output, "android-build.log"), build);
     run(adb, [
       ...adbArgs,
       "install",
