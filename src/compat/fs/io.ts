@@ -1,6 +1,11 @@
 import { viewBytes } from "../../shared/buffer-source.js";
 import { Buffer } from "node:buffer";
-import { pathOf, descriptorFlags, readDescriptor } from "./writable.js";
+import {
+  pathOf,
+  temporaryPath,
+  descriptorFlags,
+  readDescriptor,
+} from "./writable.js";
 import { fileMode } from "./mode.js";
 import {
   validateWriteArgs,
@@ -151,6 +156,50 @@ export function installIo(api: any, promises: any) {
       },
       (args) => [args[1]],
     );
+  const readCallback = api.read;
+  api.read = (fd: number, ...args: any[]) => {
+    const callbackOnly = typeof args[0] === "function";
+    const options = callbackOnly ? {} : args[0];
+    if (
+      options &&
+      typeof options === "object" &&
+      !ArrayBuffer.isView(options)
+    ) {
+      const callback = callbackOnly ? args[0] : args[1];
+      const {
+        buffer = Buffer.alloc(16384),
+        offset = 0,
+        length = buffer.byteLength - offset,
+        position = null,
+      } = options;
+      if (!ArrayBuffer.isView(buffer))
+        throw new ERR_INVALID_ARG_TYPE(
+          "options.buffer",
+          ["Buffer", "TypedArray", "DataView"],
+          buffer,
+        );
+      validateUint32(offset, "options.offset");
+      validateUint32(length, "options.length");
+      validatePosition(position, "options.position");
+      validateFunction(callback, "callback");
+      if (length !== 0 && offset + length > buffer.byteLength)
+        throw new ERR_INVALID_ARG_VALUE(
+          "offset",
+          "must be >= 0 and <= buffer.length",
+        );
+      let count: number;
+      try {
+        count =
+          length === 0 ? 0 : api.readSync(fd, buffer, offset, length, position);
+      } catch (error) {
+        queueMicrotask(() => callback(error));
+        return;
+      }
+      queueMicrotask(() => callback(null, count, buffer));
+      return;
+    }
+    return readCallback(fd, ...args);
+  };
   const writeCallback = api.write;
   api.write = (...args: any[]) => {
     if (
@@ -241,6 +290,34 @@ export function installIo(api: any, promises: any) {
       return typeof encoding === "string" ? data.toString(encoding) : data;
     },
   );
+  function checkWriteDestination(path: string, exclusive: boolean) {
+    // Embedded files contain no links. Looking up their lstat would mount
+    // the asset tree merely to reject a write to the read-only volume.
+    const local = temporaryPath(path);
+    const entry = local
+      ? api.lstatSync(path, { throwIfNoEntry: false })
+      : undefined;
+    if (exclusive) {
+      if (!(local ? entry : api.existsSync(path))) return;
+    } else {
+      if (!entry?.isSymbolicLink()) return;
+      try {
+        api.statSync(path);
+        return;
+      } catch (error: any) {
+        if (error.code === "ELOOP")
+          throw Object.assign(new Error("symlink depth exceeded"), {
+            code: "ELOOP",
+            syscall: "writeAll",
+          });
+        if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+      }
+    }
+    throw Object.assign(new Error("file already exists"), {
+      code: "EEXIST",
+      syscall: "writeAll",
+    });
+  }
   for (const name of ["writeFile", "appendFile"])
     install(
       name,
@@ -281,7 +358,7 @@ export function installIo(api: any, promises: any) {
       },
       (path: any, data: Buffer, append: boolean, exclusive: boolean) => {
         if (typeof path !== "number") {
-          if (exclusive && api.existsSync(path)) fail("EEXIST");
+          checkWriteDestination(path, exclusive);
           raw[append ? "appendFileSync" : "writeFileSync"](path, data);
           return data.length;
         }

@@ -420,7 +420,9 @@
   ],
   "node.fs": [
     "readFileSync",
+    "copyFileEntry",
     "readFileCallback",
+    "wholeFileDanglingLink",
     "promises",
     "readdirSync",
     "existsSync",

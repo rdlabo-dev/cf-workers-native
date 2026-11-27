@@ -9,9 +9,17 @@ import { nativeBackend } from "../../native/backend.mjs";
 import { runNativeAcceptance } from "../../native/acceptance.mjs";
 import { root, startWorker } from "./backend.mjs";
 
-async function sessionFixture() {
+async function sessionFixture(expireOnStop = false) {
   let worker;
   let authenticatedHeaders;
+  let relaunch = false;
+  let restoredTokenMatches;
+  const sessionToken = (cookie) =>
+    cookie
+      ?.split(/;\s*/)
+      .find((pair) =>
+        /^(?:__Secure-)?better-auth\.session_token=.+/.test(pair),
+      );
   const driver = await build({
     stdin: {
       contents: await readFile(
@@ -30,6 +38,17 @@ async function sessionFixture() {
     dispatch: async (url, init) => {
       const { pathname, origin } = new URL(url);
       if (!pathname.startsWith("/session-test")) {
+        if (
+          expireOnStop &&
+          relaunch &&
+          pathname === "/api/auth/get-session" &&
+          restoredTokenMatches === undefined
+        ) {
+          const previous = sessionToken(authenticatedHeaders?.cookie);
+          restoredTokenMatches = Boolean(
+            previous && sessionToken(init.headers.cookie) === previous,
+          );
+        }
         const response = await worker.dispatchFetch(url, init);
         // Only expose the anonymous, read-only CORS control in this fixture.
         if (
@@ -39,8 +58,9 @@ async function sessionFixture() {
           ["capacitor://localhost", "https://localhost"].includes(
             init.headers.origin,
           ) &&
-          !init.headers.cookie &&
-          !init.headers.authorization
+          !init.headers.authorization &&
+          response.ok &&
+          (await response.clone().json()) === null
         ) {
           const headers = new Headers(response.headers);
           headers.set("access-control-allow-origin", init.headers.origin);
@@ -66,7 +86,7 @@ async function sessionFixture() {
         heading = "reader@example.com";
       }
       return new Response(
-        `<html><body data-auth-origin="${origin}"><h1>${heading}</h1></body></html>`,
+        `<html><body data-auth-origin="${origin}" data-relaunch="${relaunch}" data-expiry-scenario="${expireOnStop}"><h1>${heading}</h1></body></html>`,
         {
           headers: { "content-type": "text/html", "cache-control": "no-store" },
         },
@@ -80,7 +100,22 @@ async function sessionFixture() {
     return {
       ...backend,
       db: initialized.db,
+      async afterStop() {
+        if (expireOnStop) {
+          const result = await initialized.db
+            .prepare("UPDATE session SET expires_at=1 WHERE user_id='reader'")
+            .run();
+          assert.equal(result.meta.changes, 1);
+        }
+        relaunch = true;
+      },
       async checkRevocation() {
+        if (expireOnStop)
+          assert.equal(
+            restoredTokenMatches,
+            true,
+            "Expected the previous session token on the first session lookup after relaunch",
+          );
         assert.ok(
           authenticatedHeaders?.cookie,
           "Expected the signed-in test session",
@@ -100,7 +135,7 @@ async function sessionFixture() {
   }
 }
 test(
-  "configured Better Auth native session survives reload and is revoked on logout",
+  "configured Better Auth native session survives reload and process restart, then is revoked on logout",
   { timeout: 600000 },
   async () => {
     const backend = await sessionFixture();
@@ -113,6 +148,7 @@ test(
       workerConfig: fileURLToPath(new URL("worker.jsonc", import.meta.url)),
       kvExecution: { KV: "remote" },
       render: "/session-test",
+      restart: { stage: "ready-for-restart", afterStop: backend.afterStop },
       artifacts: join(root, "../session-native"),
       validate: async (backend, platform) => {
         assert.equal(
@@ -143,7 +179,7 @@ test(
           backend.requests
             .filter((r) => r.path === "/session-test/account")
             .map((r) => r.status),
-          [200, 200, 401],
+          [200, 200, 200, 401],
         );
         for (const path of ["/api/auth/sign-in/email", "/api/auth/sign-out"]) {
           const posts = backend.requests.filter(
@@ -160,6 +196,53 @@ test(
             .first("n"),
           0,
         );
+      },
+    });
+  },
+);
+
+test(
+  "an expired Better Auth session denies access after native process restart",
+  { timeout: 600000 },
+  async () => {
+    const backend = await sessionFixture(true);
+    await runNativeAcceptance({
+      backend,
+      worker: join(
+        root,
+        ".cloudflare/output/v0/workers/default/bundle/index.js",
+      ),
+      workerConfig: fileURLToPath(new URL("worker.jsonc", import.meta.url)),
+      kvExecution: { KV: "remote" },
+      render: "/session-test",
+      restart: { stage: "ready-for-restart", afterStop: backend.afterStop },
+      artifacts: join(root, "../expired-session-native"),
+      validate: async (backend, platform) => {
+        assert.equal(
+          backend.reports.find((r) => r.stage === "complete").platform,
+          platform,
+        );
+        assert.deepEqual(
+          backend.requests
+            .filter((r) => r.path === "/session-test/account")
+            .map((r) => r.status),
+          [200, 200, 401],
+        );
+        assert.deepEqual(
+          backend.requests
+            .filter(
+              (r) =>
+                r.path === "/api/auth/sign-in/email" && r.method === "POST",
+            )
+            .map((r) => r.status),
+          [200],
+        );
+        assert.equal(
+          backend.requests.filter((r) => r.path === "/api/auth/sign-out")
+            .length,
+          0,
+        );
+        await backend.checkRevocation();
       },
     });
   },

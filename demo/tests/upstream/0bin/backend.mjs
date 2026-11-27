@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { readFile, readdir } from "node:fs/promises";
@@ -56,9 +57,70 @@ export async function startBackend() {
       await db.prepare(statement).run();
   }
   const backend = await nativeBackend({
-    dispatch: (url, init) => worker.dispatchFetch(url, init),
+    dispatch: async (url, init) => {
+      const response = await worker.dispatchFetch(url, init);
+      const match = /^\/api\/pastes\/([a-zA-Z0-9_-]{12})$/.exec(
+        new URL(url).pathname,
+      );
+      if (init.method === "GET" && response.ok && match) {
+        const stored = await db
+          .prepare("SELECT ciphertext FROM pastes WHERE id=?")
+          .bind(match[1])
+          .first("ciphertext");
+        const returned = await response.clone().json();
+        assert.ok(
+          stored && stored === returned.ciphertext,
+          "Expected the ciphertext served to the UI to match D1",
+        );
+      }
+      return response;
+    },
     driver: await readFile(new URL("driver.js", import.meta.url), "utf8"),
     dispose: () => worker.dispose(),
   });
   return { ...backend, db };
+}
+
+export async function verifyPastes(backend, report) {
+  const { results } = await backend.db
+    .prepare("SELECT id,ciphertext,kind FROM pastes ORDER BY kind")
+    .all();
+  assert.deepEqual(
+    results.map((row) => [row.kind, row.id]),
+    [
+      ["file", report.fileId],
+      ["text", report.id],
+    ],
+  );
+  const reads = backend.requests.filter(
+    (request) =>
+      request.method === "GET" &&
+      request.path === "/api/pastes/" + report.fileId,
+  );
+  assert.ok(
+    reads.length >= 3,
+    "Expected the original, incorrect-key and restored-key reads",
+  );
+  assert.ok(
+    reads.every((request) => request.status === 200),
+    "The owner must still be able to retrieve ciphertext with each fragment",
+  );
+  for (const row of results) {
+    const envelope = Buffer.from(row.ciphertext, "base64url");
+    assert.equal(envelope[0], 1);
+    assert.ok(
+      envelope.length > 1 + 12 + 16,
+      "Expected IV, encrypted payload and authentication tag",
+    );
+    assert.ok(
+      !envelope.includes(Buffer.from("Capacitor encrypted acceptance")),
+    );
+    assert.ok(!envelope.includes(Buffer.from("色見本.png")));
+    if (row.kind === "file") {
+      // Either prefix would expose the uploaded PNG in raw or base64 form.
+      const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+      assert.ok(!envelope.includes(signature));
+      assert.ok(!envelope.includes(Buffer.from("iVBORw0KGgo")));
+    }
+  }
 }

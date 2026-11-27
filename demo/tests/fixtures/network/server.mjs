@@ -3,6 +3,7 @@ import { gzipSync, brotliCompressSync, deflateSync } from "node:zlib";
 
 /** Loopback fixture only. The library itself never starts an HTTP server. */
 export function createNetworkFixture() {
+  const commitCounts = new Map();
   const active = new Set();
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://fixture.invalid");
@@ -13,6 +14,39 @@ export function createNetworkFixture() {
     }
     try {
       switch (url.pathname) {
+        case "/commit-before-disconnect": {
+          const key = url.searchParams.get("operation");
+          if (!key || !/^[a-f0-9-]{36}$/.test(key)) {
+            response.writeHead(400).end();
+            return;
+          }
+          if (request.method === "POST") {
+            const expected = Buffer.from(key);
+            let offset = 0;
+            for await (const chunk of request) {
+              if (
+                !chunk.equals(expected.subarray(offset, offset + chunk.length))
+              ) {
+                response.writeHead(400).end();
+                return;
+              }
+              offset += chunk.length;
+            }
+            if (offset !== expected.length) {
+              response.writeHead(400).end();
+              return;
+            }
+            if (!commitCounts.has(key) && commitCounts.size >= 64) {
+              commitCounts.delete(commitCounts.keys().next().value);
+            }
+            commitCounts.set(key, (commitCounts.get(key) ?? 0) + 1);
+            response.destroy();
+            return;
+          }
+          response.end(JSON.stringify(commitCounts.get(key) ?? 0));
+          commitCounts.delete(key);
+          return;
+        }
         case "/active":
           response.end(JSON.stringify([...active]));
           return;
@@ -69,6 +103,18 @@ export function createNetworkFixture() {
           response.writeHead(200);
           response.flushHeaders();
           return;
+        case "/incomplete-length":
+        case "/incomplete-chunked": {
+          // Finish the transport normally, but omit bytes required by HTTP.
+          const framing =
+            url.pathname === "/incomplete-length"
+              ? "Content-Length: 12\r\n\r\npartial"
+              : "Transfer-Encoding: chunked\r\n\r\n7\r\npartial\r\n";
+          request.socket.end(
+            `HTTP/1.1 200 OK\r\nConnection: close\r\n${framing}`,
+          );
+          return;
+        }
         case "/early":
           response.writeHead(200);
           response.flushHeaders();

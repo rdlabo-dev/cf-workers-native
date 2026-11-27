@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { runNativeAcceptance } from "../../native/acceptance.mjs";
-import { startBackend, root } from "./backend.mjs";
+import { verifyStoredFiles, startBackend, root } from "./backend.mjs";
 test(
   "FlareDrive listing and authenticated WebDAV round trip",
   { timeout: 600000 },
@@ -19,11 +19,7 @@ test(
           backend.reports.find((r) => r.stage === "complete").platform,
           platform,
         );
-        assert.equal(
-          await (await backend.bucket.get("accepted.txt")).text(),
-          "Capacitor WebDAV acceptance",
-        );
-        assert.equal(await backend.bucket.get("denied.txt"), null);
+        await verifyStoredFiles(backend.bucket);
       },
     });
   },

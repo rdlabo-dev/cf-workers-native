@@ -36,9 +36,12 @@ const auth = createAuthClient({
 The native transport uses its Worker cookie store. Better Auth receives the
 canonical origin on sign-in and sign-out and retains its origin checks. On iOS
 26.5 and Android API 35 the test signs in, opens a protected test page, reloads
-it and signs out. It checks D1 session removal and looks up the previous
+it, restarts the app process without clearing its data, reopens the protected
+page and signs out. It checks D1 session removal and looks up the previous
 session with cookie caching disabled. Upstream enables a five-minute cookie
-cache; these checks establish database-backed revocation only.
+cache; these checks establish database-backed revocation only. A second scenario
+expires the D1 session while the app is stopped. The relaunched app sees an
+anonymous session and receives HTTP 401 from the protected page.
 
 The same test isolates the earlier anonymous-session failure. Direct HTTPS
 requests both returned 200 at the server. The WebView could read the response

@@ -1,3 +1,5 @@
+import { getRequestBindings } from "../../../shared/request-context.js";
+
 // Bindings arrive per request through the fetch signature; the worker
 // transport installs them so module-scope `env` reads resolve too.
 let workerEnv: Record<string, unknown> = {};
@@ -10,21 +12,26 @@ export function setWorkerEnv(env: unknown): void {
       : {};
 }
 
+function currentBindings() {
+  return getRequestBindings() ?? workerEnv;
+}
+
 export const env: Record<string, unknown> = new Proxy(Object.create(null), {
   get(_target, name) {
-    return workerEnv[String(name)];
+    return Reflect.get(currentBindings(), name);
   },
   has(_target, name) {
-    return String(name) in workerEnv;
+    return Reflect.has(currentBindings(), name);
   },
   ownKeys() {
-    return Reflect.ownKeys(workerEnv);
+    return Reflect.ownKeys(currentBindings());
   },
   getOwnPropertyDescriptor(_target, name) {
-    const value = workerEnv[String(name)];
-    return value === undefined
-      ? undefined
-      : { configurable: true, enumerable: true, value };
+    const descriptor = Reflect.getOwnPropertyDescriptor(
+      currentBindings(),
+      name,
+    );
+    return descriptor && { ...descriptor, configurable: true };
   },
 });
 

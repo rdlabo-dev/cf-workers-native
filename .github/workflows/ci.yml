@@ -117,6 +117,7 @@ jobs:
           # Share browser/dependency setup for short, independent suites.
           # Keep commands sequential: each retains its original failure gate.
           - suite: build-tools-and-upstream-browser
+            native: minvoice
             commands: |
               npm run test:build-tools
               npm install --prefix authentication
@@ -235,6 +236,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          # PR caches serve retries on that PR. A full main run also seeds
+          # the default-branch cache for later pull requests.
+          cache: gradle
+          cache-dependency-path: |
+            demo/android/**/*.gradle
+            demo/android/gradle/wrapper/gradle-wrapper.properties
+            native/android/build.gradle
+            demo/opennext/package.json
+            demo/tests/scripts/prepare-upstream.mjs
       - run: npm install --prefix demo/opennext
         if: matrix.native
       - name: Enable emulator acceleration
@@ -276,6 +286,8 @@ jobs:
             demo/artifacts/upstream/${{ matrix.native }}/session-native/android-*.json
             demo/artifacts/upstream/${{ matrix.native }}/session-native/android-error.log
             demo/tests/native-embedding/android/build/acceptance/
+            demo/artifacts/upstream/${{ matrix.native }}/expired-session-native/android-*.json
+            demo/artifacts/upstream/${{ matrix.native }}/expired-session-native/android-error.log
             demo/artifacts/opennext-native/android-*.json
             demo/artifacts/opennext-native/android-error.log
             demo/artifacts/opennext-releases/native/android-*.json

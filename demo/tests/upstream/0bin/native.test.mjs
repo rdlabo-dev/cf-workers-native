@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { runNativeAcceptance } from "../../native/acceptance.mjs";
-import { startBackend, root } from "./backend.mjs";
+import { verifyPastes, startBackend, root } from "./backend.mjs";
 test(
   "0bin encrypt, save and decrypt through native navigation",
   { timeout: 600000 },
@@ -19,17 +19,7 @@ test(
       validate: async (backend, platform) => {
         const result = backend.reports.find((r) => r.stage === "complete");
         assert.equal(result.platform, platform);
-        const rows = await backend.db
-          .prepare("SELECT id,ciphertext,kind FROM pastes")
-          .all();
-        assert.equal(rows.results.length, 1);
-        assert.equal(rows.results[0].id, result.id);
-        assert.equal(rows.results[0].kind, "text");
-        assert.ok(
-          !rows.results[0].ciphertext.includes(
-            "Capacitor encrypted acceptance",
-          ),
-        );
+        await verifyPastes(backend, result);
       },
     });
   },

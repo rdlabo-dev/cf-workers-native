@@ -1,4 +1,5 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import * as embedded from "./embedded.js";
 import * as fs from "./index.js";
 import { runWithTemporaryFiles, retainTemporaryFiles } from "./writable.js";
 
@@ -157,6 +158,44 @@ test("direct stream constructors use the active request volume", async () => {
   expect(fs.existsSync("/tmp/stream")).toBe(false);
 });
 
+test("copyFile validates the source path before checking destination permissions", () => {
+  for (const source of [null, {}, 42]) {
+    expect(() => fs.copyFileSync(source, "/bundle/readonly")).toThrow(
+      expect.objectContaining({ code: "ERR_INVALID_ARG_TYPE" }),
+    );
+  }
+});
+
+test("copyFile replaces the destination entry and leaves other references intact", () => {
+  fs.registerVirtualFiles({ "/bundle/new-file": "new" });
+  for (const source of ["/tmp/source", "/bundle/new-file"]) {
+    runWithTemporaryFiles(() => {
+      fs.writeFileSync("/tmp/source", "new");
+      fs.writeFileSync("/tmp/target", "old");
+      fs.linkSync("/tmp/target", "/tmp/alias");
+      fs.symlinkSync("/tmp/target", "/tmp/symlink");
+      const fd = fs.openSync("/tmp/target", "r");
+      try {
+        fs.copyFileSync(source, "/tmp/symlink");
+        expect(fs.lstatSync("/tmp/symlink").isFile()).toBe(true);
+        expect(fs.readFileSync("/tmp/symlink", "utf8")).toBe("new");
+        expect(fs.readFileSync("/tmp/target", "utf8")).toBe("old");
+        fs.copyFileSync(source, "/tmp/target", fs.constants.COPYFILE_FICLONE);
+        expect(fs.readFileSync("/tmp/target", "utf8")).toBe("new");
+        expect(fs.readFileSync("/tmp/alias", "utf8")).toBe("old");
+        expect(fs.readFileSync(fd, "utf8")).toBe("old");
+        fs.symlinkSync("/tmp/alias", "/tmp/dangling");
+        fs.unlinkSync("/tmp/alias");
+        fs.copyFileSync(source, "/tmp/dangling", fs.constants.COPYFILE_EXCL);
+        expect(fs.lstatSync("/tmp/dangling").isFile()).toBe(true);
+        expect(fs.existsSync("/tmp/alias")).toBe(false);
+      } finally {
+        fs.closeSync(fd);
+      }
+    });
+  }
+});
+
 test("embedded files can be copied into temporary files without exposing mutable storage", async () => {
   fs.registerVirtualFiles({ "/bundle/copy-source": "original" });
   const bytes = fs.readFileSync("/bundle/copy-source") as Uint8Array;
@@ -167,6 +206,50 @@ test("embedded files can be copied into temporary files without exposing mutable
     expect(fs.readFileSync("/tmp/copy", "utf8")).toBe("original");
     fs.writeFileSync("/tmp/copy", "changed");
     expect(fs.readFileSync("/bundle/copy-source", "utf8")).toBe("original");
+  });
+});
+
+test("a failed copy preserves the destination file and any link to it", async () => {
+  await runWithTemporaryFiles(async () => {
+    fs.mkdirSync("/tmp/source-directory");
+    fs.writeFileSync("/tmp/keep", "original");
+    fs.symlinkSync("/tmp/keep", "/tmp/link-to-keep");
+    for (const dest of ["/tmp/keep", "/tmp/link-to-keep"]) {
+      for (const mode of [0, fs.constants.COPYFILE_FICLONE]) {
+        expect(() =>
+          fs.copyFileSync("/tmp/source-directory", dest, mode),
+        ).toThrow(expect.objectContaining({ code: "EISDIR" }));
+        expect(fs.readFileSync("/tmp/keep", "utf8")).toBe("original");
+        expect(fs.lstatSync("/tmp/link-to-keep").isSymbolicLink()).toBe(true);
+      }
+      await expect(
+        fs.promises.copyFile(
+          "/tmp/missing-source",
+          dest,
+          fs.constants.COPYFILE_EXCL,
+        ),
+      ).rejects.toMatchObject({ code: "EEXIST" });
+    }
+  });
+});
+
+test("copying a directory preserves a dangling destination link", () => {
+  runWithTemporaryFiles(() => {
+    fs.mkdirSync("/tmp/source-directory");
+    fs.writeFileSync("/tmp/removed", "old");
+    fs.symlinkSync("/tmp/removed", "/tmp/dangling");
+    fs.unlinkSync("/tmp/removed");
+    for (const mode of [
+      0,
+      fs.constants.COPYFILE_EXCL,
+      fs.constants.COPYFILE_FICLONE,
+    ]) {
+      expect(() =>
+        fs.copyFileSync("/tmp/source-directory", "/tmp/dangling", mode),
+      ).toThrow(expect.objectContaining({ code: "EISDIR" }));
+      expect(fs.readlinkSync("/tmp/dangling")).toBe("/tmp/removed");
+      expect(fs.existsSync("/tmp/removed")).toBe(false);
+    }
   });
 });
 
@@ -317,4 +400,149 @@ test("streams created in an ended request retain their volume when consumed in a
       ).toBe("changed");
     });
   }
+});
+
+test("callback reads allocate a default Buffer or retain the caller's view", async () => {
+  const read = (...args: unknown[]) =>
+    runWithTemporaryFiles(async () => {
+      fs.writeFileSync("/tmp/callback-read", "abcdef");
+      const fd = fs.openSync("/tmp/callback-read", "r");
+      const run = retainTemporaryFiles();
+      try {
+        return await new Promise<{ count: number; buffer: Uint8Array }>(
+          (resolve, reject) => {
+            fs.read(
+              fd,
+              ...args,
+              (error: Error | null, count: number, buffer: Uint8Array) =>
+                error ? reject(error) : resolve({ count, buffer }),
+            );
+          },
+        );
+      } finally {
+        run(() => fs.closeSync(fd));
+      }
+    });
+  for (const { args, text } of [
+    { args: [], text: "abcdef" },
+    { args: [{}], text: "abcdef" },
+    { args: [{ length: 3, position: 1 }], text: "bcd" },
+  ]) {
+    const { count, buffer } = await read(...args);
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.byteLength).toBe(16384);
+    expect(new TextDecoder().decode(buffer.subarray(0, count))).toBe(text);
+  }
+  const storage = new Uint8Array(6).fill(42);
+  const view = storage.subarray(1, 5);
+  const { count, buffer } = await read({
+    buffer: view,
+    offset: 1,
+    length: 2,
+    position: 2,
+  });
+  expect(buffer).toBe(view);
+  expect(count).toBe(2);
+  expect(Array.from(storage)).toEqual([42, 42, 99, 100, 42, 42]);
+});
+
+test("callback options validate the destination range before reading", async () => {
+  await runWithTemporaryFiles(async () => {
+    fs.writeFileSync("/tmp/read-range", "a");
+    const fd = fs.openSync("/tmp/read-range", "r");
+    const run = retainTemporaryFiles();
+    const buffer = new Uint8Array(1);
+    try {
+      for (const [offset, length] of [
+        [0, 2],
+        [1, 1],
+      ]) {
+        expect(() => fs.read(fd, { buffer, offset, length }, () => {})).toThrow(
+          expect.objectContaining({ code: "ERR_INVALID_ARG_VALUE" }),
+        );
+      }
+      const result = await new Promise((resolve, reject) =>
+        fs.read(
+          fd,
+          { buffer, offset: 2, length: 0 },
+          (error: Error | null, count: number, actual: Uint8Array) =>
+            error ? reject(error) : resolve([count, actual === buffer]),
+        ),
+      );
+      expect(result).toEqual([0, true]);
+    } finally {
+      run(() => fs.closeSync(fd));
+    }
+  });
+});
+test("whole-file writers retain unresolved link entries and never create their targets", async () => {
+  await runWithTemporaryFiles(async () => {
+    fs.writeFileSync("/tmp/file", "original");
+    fs.symlinkSync("/tmp/missing", "/tmp/dangling");
+    fs.symlinkSync("/tmp/dangling", "/tmp/chain");
+    fs.symlinkSync("/tmp/file/child", "/tmp/invalid-parent");
+    for (const path of ["/tmp/dangling", "/tmp/chain", "/tmp/invalid-parent"]) {
+      const target = fs.readlinkSync(path);
+      for (const flag of ["w", "wx", "r+", "a", "ax"]) {
+        for (const write of [fs.writeFileSync, fs.appendFileSync]) {
+          expect(() => write(path, "data", { flag })).toThrow(
+            expect.objectContaining({ code: "EEXIST", syscall: "writeAll" }),
+          );
+        }
+      }
+      expect(fs.readlinkSync(path)).toBe(target);
+      expect(fs.existsSync("/tmp/missing")).toBe(false);
+    }
+    await new Promise<void>((resolve, reject) => {
+      fs.writeFile(
+        "/tmp/dangling",
+        "data",
+        (error: NodeJS.ErrnoException | null) => {
+          try {
+            expect(error?.code).toBe("EEXIST");
+            expect(fs.existsSync("/tmp/missing")).toBe(false);
+            resolve();
+          } catch (cause) {
+            reject(cause);
+          }
+        },
+      );
+    });
+    fs.symlinkSync("/tmp/self", "/tmp/self");
+    fs.symlinkSync("/tmp/right", "/tmp/left");
+    fs.symlinkSync("/tmp/left", "/tmp/right");
+    for (const path of ["/tmp/self", "/tmp/left"]) {
+      for (const write of [fs.writeFileSync, fs.appendFileSync]) {
+        for (const flag of ["w", "a", "wx", "ax"]) {
+          expect(() => write(path, "data", { flag })).toThrow(
+            expect.objectContaining({
+              code: flag.includes("x") ? "EEXIST" : "ELOOP",
+              syscall: "writeAll",
+            }),
+          );
+        }
+      }
+    }
+    fs.symlinkSync("/tmp/file", "/tmp/valid");
+    fs.appendFileSync("/tmp/valid", "!");
+    expect(fs.readFileSync("/tmp/file", "utf8")).toBe("original!");
+  });
+});
+
+test("rejecting writes to embedded directories does not read their contents", () => {
+  fs.registerVirtualFiles({ "/bundle/write-guard/child": "read only" });
+  runWithTemporaryFiles(() => {
+    const read = vi.spyOn(embedded, "readFileSync");
+    try {
+      expect(() => fs.writeFileSync("/bundle/write-guard", "ignored")).toThrow(
+        expect.objectContaining({ code: "EPERM" }),
+      );
+      expect(() =>
+        fs.appendFileSync("/bundle/write-guard", "ignored", { flag: "ax" }),
+      ).toThrow(expect.objectContaining({ code: "EEXIST" }));
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+    }
+  });
 });

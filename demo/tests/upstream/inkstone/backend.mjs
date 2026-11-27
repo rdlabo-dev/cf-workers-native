@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { readFile } from "node:fs/promises";
@@ -45,4 +46,17 @@ export async function startBackend() {
     dispose: () => worker.dispose(),
   });
   return { ...backend, db };
+}
+
+export async function verifySavedNote(db) {
+  const result = await db
+    .prepare("SELECT title, content FROM notes WHERE title=?")
+    .bind("Capacitor acceptance note")
+    .all();
+  assert.deepEqual(result.results, [
+    {
+      title: "Capacitor acceptance note",
+      content: "買い物メモ 📝 — café と牛乳",
+    },
+  ]);
 }

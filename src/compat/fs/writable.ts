@@ -370,6 +370,34 @@ function createTemporary() {
           args[0] = pathOf(args[0]);
           mount(args[0]);
           args[1] = mutable(args[1], base, base !== "link");
+          // memfs may truncate or unlink an existing destination before discovering
+          // that the source cannot be copied. Workers preserves it on failure.
+          if (
+            base === "copyFile" &&
+            fs.lstatSync(args[1], { throwIfNoEntry: false })
+          ) {
+            if (
+              args[2] === fs.constants.COPYFILE_EXCL &&
+              fs.existsSync(args[1])
+            )
+              throw Object.assign(
+                new Error(`file already exists, copyFile '${args[1]}'`),
+                {
+                  code: "EEXIST",
+                  errno: -17,
+                  syscall: "copyFile",
+                  path: args[1],
+                },
+              );
+            if (fs.statSync(args[0], { throwIfNoEntry: false })?.isDirectory())
+              throw Object.assign(
+                new Error("illegal operation on a directory"),
+                {
+                  code: "EISDIR",
+                  syscall: "copy",
+                },
+              );
+          }
         } else if (base === "rename") {
           args[0] = mutable(args[0], base, false);
           args[1] = mutable(args[1], base, false);
@@ -513,6 +541,26 @@ function createTemporary() {
         ),
       );
   return {
+    replaceFile(path: string, data: Uint8Array) {
+      const target = mutable(path, "copyFile", false) as string;
+      const parent = core.getResolvedLinkOrThrow(
+        posix.dirname(target),
+        "copyFile",
+      );
+      const entry = parent.getChild(posix.basename(target));
+      const previous = entry.getNode();
+      const replacement = core.createNode(fs.constants.S_IFREG | 0o666);
+      try {
+        replacement.setBuffer(data);
+      } catch (error) {
+        core.deleteNode(replacement);
+        throw error;
+      }
+      // Retarget this entry only. Its parent keeps the same child count, while
+      // other links and open descriptions retain their original node.
+      entry.setNode(replacement);
+      if (--previous.nlink === 0) core.deleteNode(previous);
+    },
     descriptorFlags(fd: number) {
       return core.getFileByFdOrThrow(fd, "write").flags;
     },
@@ -606,6 +654,9 @@ export function readDescriptor(fd: number): Buffer {
   return active().readDescriptor(fd);
 }
 
+export function replaceTemporaryFile(path: string, data: Uint8Array): void {
+  active().replaceFile(path, data);
+}
 export function descriptorFlags(fd: number): number {
   return active().descriptorFlags(fd);
 }
