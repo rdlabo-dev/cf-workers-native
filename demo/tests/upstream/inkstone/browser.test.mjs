@@ -1,8 +1,7 @@
 import { waitForAcceptance } from "../../native/reports.mjs";
 import { test } from "node:test";
-import assert from "node:assert/strict";
 import { chromium, webkit } from "@playwright/test";
-import { startBackend } from "./backend.mjs";
+import { verifySavedNote, startBackend } from "./backend.mjs";
 for (const engine of [chromium, webkit])
   test(
     `Inkstone original Worker in ${engine.name()}`,
@@ -15,16 +14,7 @@ for (const engine of [chromium, webkit])
         const page = await browser.newPage({ ignoreHTTPSErrors: true });
         await page.goto(backend.url.href);
         await waitForAcceptance(backend, 40000);
-        assert.equal(
-          (
-            await backend.db
-              .prepare(
-                "SELECT title FROM notes WHERE title='Capacitor acceptance note'",
-              )
-              .first()
-          )?.title,
-          "Capacitor acceptance note",
-        );
+        await verifySavedNote(backend.db);
       } finally {
         try {
           await browser?.close();
