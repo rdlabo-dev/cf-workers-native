@@ -3,6 +3,7 @@ import { gzipSync, brotliCompressSync, deflateSync } from "node:zlib";
 
 /** Loopback fixture only. The library itself never starts an HTTP server. */
 export function createNetworkFixture() {
+  const committedBodies = new Map();
   const active = new Set();
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, "http://fixture.invalid");
@@ -13,6 +14,21 @@ export function createNetworkFixture() {
     }
     try {
       switch (url.pathname) {
+        case "/commit-before-disconnect": {
+          const key = url.searchParams.get("operation");
+          if (request.method === "POST") {
+            const chunks = [];
+            for await (const chunk of request) chunks.push(chunk);
+            const bodies = committedBodies.get(key) ?? [];
+            bodies.push(Buffer.concat(chunks).toString());
+            committedBodies.set(key, bodies);
+            response.destroy();
+            return;
+          }
+          response.end(JSON.stringify(committedBodies.get(key) ?? []));
+          committedBodies.delete(key);
+          return;
+        }
         case "/active":
           response.end(JSON.stringify([...active]));
           return;

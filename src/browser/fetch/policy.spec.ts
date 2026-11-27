@@ -41,6 +41,7 @@ export const fetchPolicyFeature = defineFeature<API>()("web.fetch-policy", [
   "otherEncodings",
   "manualGzip",
   "requestEncoding",
+  "postResponseLoss",
   "abortHeaders",
   "postRedirect",
   "streamRedirect",
@@ -190,6 +191,13 @@ export const fetchPolicyContract: ContractSuite<typeof fetchPolicyFeature> = {
       equal(await (await api.fetch(request)).text(), "compressed body");
       equal(await (await api.fetch(request.clone())).text(), "compressed body");
     },
+    async postResponseLoss(api) {
+      const operation = crypto.randomUUID();
+      const url = `${api.baseURL}/commit-before-disconnect?operation=${operation}`;
+      await rejects(api.fetch(url, { method: "POST", body: operation }));
+      const receipt = await api.fetch(url);
+      equal(await receipt.json(), [operation]);
+    },
     async abortHeaders(api) {
       const controller = new AbortController();
       const pending = api.fetch(`${api.baseURL}/never`, {
@@ -307,6 +315,7 @@ export class FetchPolicyImplementation extends FeatureImplementation<
       otherEncodings: { status: "supported" },
       manualGzip: { status: "supported" },
       requestEncoding: { status: "supported" },
+      postResponseLoss: { status: "supported" },
       abortHeaders: { status: "supported" },
       postRedirect: { status: "supported" },
       streamRedirect: { status: "supported" },
