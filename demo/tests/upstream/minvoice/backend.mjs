@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { readFile, readdir } from "node:fs/promises";
@@ -56,4 +57,41 @@ export async function startBackend() {
     dispose: () => worker.dispose(),
   });
   return { ...backend, db };
+}
+
+export async function verifyDraft(db) {
+  const { results: invoices } = await db
+    .prepare(
+      "SELECT id, status, subtotal_cents, total_cents FROM invoices WHERE subject = 'Native invoice'",
+    )
+    .all();
+  assert.equal(invoices.length, 1);
+  const [{ id, ...draft }] = invoices;
+  assert.deepEqual(draft, {
+    status: "draft",
+    subtotal_cents: 2980,
+    total_cents: 2980,
+  });
+  const { results: items } = await db
+    .prepare(
+      "SELECT position, description, quantity, unit_price_cents, amount_cents FROM invoice_items WHERE invoice_id = ? ORDER BY position, id",
+    )
+    .bind(id)
+    .all();
+  assert.deepEqual(items, [
+    {
+      position: 0,
+      description: "Native line item",
+      quantity: 2,
+      unit_price_cents: 1250,
+      amount_cents: 2500,
+    },
+    {
+      position: 1,
+      description: "設計 & café + 仕上げ",
+      quantity: 1.5,
+      unit_price_cents: 320,
+      amount_cents: 480,
+    },
+  ]);
 }
