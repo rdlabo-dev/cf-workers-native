@@ -308,8 +308,8 @@ export async function runNativeAcceptance({
         "Missing original app PID",
       );
       await waitForAcceptance(backend, timeout, restart.stage);
-      if (reversedPort)
-        await exec("adb", ["-s", device, "shell", "am", "force-stop", appId]);
+      if (platform === "android")
+        await run("adb", ["-s", device, "shell", "am", "force-stop", appId]);
       else if (physicalIOS)
         await run("xcrun", [
           "devicectl",
