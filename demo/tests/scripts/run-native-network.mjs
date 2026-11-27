@@ -179,6 +179,8 @@ try {
   const deadline = Date.now() + 120_000;
   let results;
   while (!results && Date.now() < deadline) {
+    const fatal = log.match(/NETWORK_FATAL ([^\r\n]+)/);
+    if (fatal) throw new Error(fatal[1]);
     const match = log.match(/NETWORK_COMPLETE (\d+)/);
     if (match) {
       results = [...log.matchAll(/NETWORK_RESULT (\{[^\r\n]+\})/g)].map(

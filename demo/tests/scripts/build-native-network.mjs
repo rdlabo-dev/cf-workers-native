@@ -80,5 +80,5 @@ if (consumer) {
 }
 await writeFile(
   new URL("index.html", output),
-  '<!doctype html><meta charset="utf-8"><title>Native network contract</title><body><pre>Running native network contract</pre><script type="module" src="./main.js"></script>',
+  '<!doctype html><meta charset="utf-8"><title>Native network contract</title><body><pre>Running native network contract</pre><script type="module">import("./main.js").catch(error => console.error("NETWORK_FATAL " + String(error)))</script>',
 );
