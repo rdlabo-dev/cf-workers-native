@@ -518,7 +518,20 @@ async function acceptance() {
       if (value === "null") adb("shell", "settings", "delete", "system", name);
       else adb("shell", "settings", "put", "system", name, value);
     }
-    await writeFile(path.join(artifacts, "runtime.log"), adb("logcat", "-d"));
+    await writeFile(
+      path.join(artifacts, "runtime.log"),
+      recovery
+        ? adb(
+            "logcat",
+            "-d",
+            "-s",
+            "HostIsolation:I",
+            "WorkersNative:E",
+            "ActivityManager:I",
+            "*:S",
+          )
+        : adb("logcat", "-d"),
+    );
     await writeFile(
       path.join(artifacts, "host-isolation.log"),
       adb("logcat", "-d", "-s", "HostIsolation:I", "*:S"),

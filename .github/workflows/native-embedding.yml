@@ -49,6 +49,9 @@ jobs:
           node demo/tests/native-embedding/ios/run.mjs "$WORKERS_SIMULATOR"
           node demo/tests/native-embedding/ios/run.mjs "$WORKERS_SIMULATOR" startup-failure
           node demo/tests/native-embedding/ios/run.mjs "$WORKERS_SIMULATOR" broken-entry
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24.21.0
       - name: Verify authenticated screen recovery
         env:
           WORKERS_IOS_PROBE_DIR: ${{ runner.temp }}/workers-ios-session-recovery
@@ -60,7 +63,10 @@ jobs:
         if: always()
         with:
           name: ios-embedding
-          path: ${{ runner.temp }}/workers-ios-acceptance/*.log
+          path: |
+            ${{ runner.temp }}/workers-ios-acceptance/*.log
+            ${{ runner.temp }}/workers-ios-session-recovery/build.log
+            ${{ runner.temp }}/workers-ios-session-recovery/session-recovery.log
   android:
     runs-on: ubuntu-24.04
     timeout-minutes: 25

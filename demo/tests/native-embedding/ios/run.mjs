@@ -185,6 +185,11 @@ const output = await new Promise((resolve, reject) => {
     deadline.stop();
     clearTimeout(resumeTimer);
     if (error) log += `\nSDK_PROBE_FAILURE ${error.message.split("\n")[0]}\n`;
+    if (recovery)
+      log = log
+        .split("\n")
+        .filter((line) => !line.includes("⚡️"))
+        .join("\n");
     writeFileSync(`${scratch}/${scenario}.log`, log);
     child.kill();
     if (error) reject(error);
