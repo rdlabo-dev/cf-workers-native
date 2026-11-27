@@ -1,4 +1,5 @@
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
+import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -36,4 +37,22 @@ export async function startBackend() {
     dispose: () => worker.dispose(),
   });
   return { ...backend, bucket };
+}
+
+export async function verifyStoredFiles(bucket) {
+  assert.equal(
+    await (await bucket.get("accepted.txt")).text(),
+    "Capacitor WebDAV acceptance",
+  );
+  assert.equal(await bucket.get("denied.txt"), null);
+  const stored = await bucket.get("契約書 01.bin");
+  assert.ok(stored, "Missing uploaded binary");
+  assert.equal(stored.size, 256 * 1024 + 17);
+  assert.equal(stored.httpMetadata.contentType, "application/octet-stream");
+  const bytes = new Uint8Array(await stored.arrayBuffer());
+  assert.equal(bytes.length, stored.size);
+  assert.ok(
+    bytes.every((byte, i) => byte === (i * 31 + Math.floor(i / 256)) % 251),
+    "Unexpected R2 object content",
+  );
 }
