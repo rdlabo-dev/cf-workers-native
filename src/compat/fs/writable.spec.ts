@@ -318,3 +318,77 @@ test("streams created in an ended request retain their volume when consumed in a
     });
   }
 });
+
+test("callback reads allocate a default Buffer or retain the caller's view", async () => {
+  const read = (...args: unknown[]) =>
+    runWithTemporaryFiles(async () => {
+      fs.writeFileSync("/tmp/callback-read", "abcdef");
+      const fd = fs.openSync("/tmp/callback-read", "r");
+      const run = retainTemporaryFiles();
+      try {
+        return await new Promise<{ count: number; buffer: Uint8Array }>(
+          (resolve, reject) => {
+            fs.read(
+              fd,
+              ...args,
+              (error: Error | null, count: number, buffer: Uint8Array) =>
+                error ? reject(error) : resolve({ count, buffer }),
+            );
+          },
+        );
+      } finally {
+        run(() => fs.closeSync(fd));
+      }
+    });
+  for (const { args, text } of [
+    { args: [], text: "abcdef" },
+    { args: [{}], text: "abcdef" },
+    { args: [{ length: 3, position: 1 }], text: "bcd" },
+  ]) {
+    const { count, buffer } = await read(...args);
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.byteLength).toBe(16384);
+    expect(new TextDecoder().decode(buffer.subarray(0, count))).toBe(text);
+  }
+  const storage = new Uint8Array(6).fill(42);
+  const view = storage.subarray(1, 5);
+  const { count, buffer } = await read({
+    buffer: view,
+    offset: 1,
+    length: 2,
+    position: 2,
+  });
+  expect(buffer).toBe(view);
+  expect(count).toBe(2);
+  expect(Array.from(storage)).toEqual([42, 42, 99, 100, 42, 42]);
+});
+
+test("callback options validate the destination range before reading", async () => {
+  await runWithTemporaryFiles(async () => {
+    fs.writeFileSync("/tmp/read-range", "a");
+    const fd = fs.openSync("/tmp/read-range", "r");
+    const run = retainTemporaryFiles();
+    const buffer = new Uint8Array(1);
+    try {
+      for (const [offset, length] of [
+        [0, 2],
+        [1, 1],
+      ]) {
+        expect(() => fs.read(fd, { buffer, offset, length }, () => {})).toThrow(
+          expect.objectContaining({ code: "ERR_INVALID_ARG_VALUE" }),
+        );
+      }
+      const result = await new Promise((resolve, reject) =>
+        fs.read(
+          fd,
+          { buffer, offset: 2, length: 0 },
+          (error: Error | null, count: number, actual: Uint8Array) =>
+            error ? reject(error) : resolve([count, actual === buffer]),
+        ),
+      );
+      expect(result).toEqual([0, true]);
+    } finally {
+      run(() => fs.closeSync(fd));
+    }
+  });
+});
