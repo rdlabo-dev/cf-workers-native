@@ -1,9 +1,21 @@
 name: Native embedding
 
 on:
+  # Seed the default-branch Gradle cache when Android build inputs change.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/native-embedding.yml"
+      - "demo/android/gradle/wrapper/gradle-wrapper.properties"
+      - "scripts/android-release/*.gradle"
+      - "scripts/android-release/gradle.properties"
+      - "native/android/build.gradle"
+      - "demo/tests/native-embedding/android/**/*.gradle"
+      - "demo/tests/native-embedding/android/gradle.properties"
   pull_request:
     paths:
       - ".github/workflows/native-embedding.yml"
+      - "demo/android/gradle/wrapper/gradle-wrapper.properties"
       - "native/**"
       - "scripts/android-release/**"
       - ".github/workflows/android-release.yml"
@@ -23,6 +35,7 @@ concurrency:
 
 jobs:
   ios:
+    if: github.event_name != 'push'
     runs-on: macos-26
     timeout-minutes: 20
     steps:
@@ -68,6 +81,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            demo/android/gradle/wrapper/gradle-wrapper.properties
+            scripts/android-release/*.gradle
+            scripts/android-release/gradle.properties
+            native/android/build.gradle
+            demo/tests/native-embedding/android/**/*.gradle
+            demo/tests/native-embedding/android/gradle.properties
       - run: npm install
       - run: npm run build
       - name: Verify standalone Maven publication and consumer
