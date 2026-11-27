@@ -1,4 +1,5 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import * as embedded from "./embedded.js";
 import * as fs from "./index.js";
 import { runWithTemporaryFiles, retainTemporaryFiles } from "./writable.js";
 
@@ -507,8 +508,41 @@ test("whole-file writers retain unresolved link entries and never create their t
         },
       );
     });
+    fs.symlinkSync("/tmp/self", "/tmp/self");
+    fs.symlinkSync("/tmp/right", "/tmp/left");
+    fs.symlinkSync("/tmp/left", "/tmp/right");
+    for (const path of ["/tmp/self", "/tmp/left"]) {
+      for (const write of [fs.writeFileSync, fs.appendFileSync]) {
+        for (const flag of ["w", "a", "wx", "ax"]) {
+          expect(() => write(path, "data", { flag })).toThrow(
+            expect.objectContaining({
+              code: flag.includes("x") ? "EEXIST" : "ELOOP",
+              syscall: "writeAll",
+            }),
+          );
+        }
+      }
+    }
     fs.symlinkSync("/tmp/file", "/tmp/valid");
     fs.appendFileSync("/tmp/valid", "!");
     expect(fs.readFileSync("/tmp/file", "utf8")).toBe("original!");
+  });
+});
+
+test("rejecting writes to embedded directories does not read their contents", () => {
+  fs.registerVirtualFiles({ "/bundle/write-guard/child": "read only" });
+  runWithTemporaryFiles(() => {
+    const read = vi.spyOn(embedded, "readFileSync");
+    try {
+      expect(() => fs.writeFileSync("/bundle/write-guard", "ignored")).toThrow(
+        expect.objectContaining({ code: "EPERM" }),
+      );
+      expect(() =>
+        fs.appendFileSync("/bundle/write-guard", "ignored", { flag: "ax" }),
+      ).toThrow(expect.objectContaining({ code: "EEXIST" }));
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+    }
   });
 });

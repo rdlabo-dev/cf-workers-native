@@ -1,6 +1,11 @@
 import { viewBytes } from "../../shared/buffer-source.js";
 import { Buffer } from "node:buffer";
-import { pathOf, descriptorFlags, readDescriptor } from "./writable.js";
+import {
+  pathOf,
+  temporaryPath,
+  descriptorFlags,
+  readDescriptor,
+} from "./writable.js";
 import { fileMode } from "./mode.js";
 import {
   validateWriteArgs,
@@ -285,6 +290,34 @@ export function installIo(api: any, promises: any) {
       return typeof encoding === "string" ? data.toString(encoding) : data;
     },
   );
+  function checkWriteDestination(path: string, exclusive: boolean) {
+    // Embedded files contain no links. Looking up their lstat would mount
+    // the asset tree merely to reject a write to the read-only volume.
+    const local = temporaryPath(path);
+    const entry = local
+      ? api.lstatSync(path, { throwIfNoEntry: false })
+      : undefined;
+    if (exclusive) {
+      if (!(local ? entry : api.existsSync(path))) return;
+    } else {
+      if (!entry?.isSymbolicLink()) return;
+      try {
+        api.statSync(path);
+        return;
+      } catch (error: any) {
+        if (error.code === "ELOOP")
+          throw Object.assign(new Error("symlink depth exceeded"), {
+            code: "ELOOP",
+            syscall: "writeAll",
+          });
+        if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+      }
+    }
+    throw Object.assign(new Error("file already exists"), {
+      code: "EEXIST",
+      syscall: "writeAll",
+    });
+  }
   for (const name of ["writeFile", "appendFile"])
     install(
       name,
@@ -325,15 +358,7 @@ export function installIo(api: any, promises: any) {
       },
       (path: any, data: Buffer, append: boolean, exclusive: boolean) => {
         if (typeof path !== "number") {
-          const entry = api.lstatSync(path, { throwIfNoEntry: false });
-          if (
-            entry &&
-            (exclusive || (entry.isSymbolicLink() && !api.existsSync(path)))
-          )
-            throw Object.assign(new Error("file already exists"), {
-              code: "EEXIST",
-              syscall: "writeAll",
-            });
+          checkWriteDestination(path, exclusive);
           raw[append ? "appendFileSync" : "writeFileSync"](path, data);
           return data.length;
         }
