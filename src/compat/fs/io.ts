@@ -325,7 +325,15 @@ export function installIo(api: any, promises: any) {
       },
       (path: any, data: Buffer, append: boolean, exclusive: boolean) => {
         if (typeof path !== "number") {
-          if (exclusive && api.existsSync(path)) fail("EEXIST");
+          const entry = api.lstatSync(path, { throwIfNoEntry: false });
+          if (
+            entry &&
+            (exclusive || (entry.isSymbolicLink() && !api.existsSync(path)))
+          )
+            throw Object.assign(new Error("file already exists"), {
+              code: "EEXIST",
+              syscall: "writeAll",
+            });
           raw[append ? "appendFileSync" : "writeFileSync"](path, data);
           return data.length;
         }

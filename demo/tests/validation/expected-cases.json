@@ -422,6 +422,7 @@
     "readFileSync",
     "copyFileEntry",
     "readFileCallback",
+    "wholeFileDanglingLink",
     "promises",
     "readdirSync",
     "existsSync",

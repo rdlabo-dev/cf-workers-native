@@ -474,3 +474,41 @@ test("callback options validate the destination range before reading", async () 
     }
   });
 });
+test("whole-file writers retain unresolved link entries and never create their targets", async () => {
+  await runWithTemporaryFiles(async () => {
+    fs.writeFileSync("/tmp/file", "original");
+    fs.symlinkSync("/tmp/missing", "/tmp/dangling");
+    fs.symlinkSync("/tmp/dangling", "/tmp/chain");
+    fs.symlinkSync("/tmp/file/child", "/tmp/invalid-parent");
+    for (const path of ["/tmp/dangling", "/tmp/chain", "/tmp/invalid-parent"]) {
+      const target = fs.readlinkSync(path);
+      for (const flag of ["w", "wx", "r+", "a", "ax"]) {
+        for (const write of [fs.writeFileSync, fs.appendFileSync]) {
+          expect(() => write(path, "data", { flag })).toThrow(
+            expect.objectContaining({ code: "EEXIST", syscall: "writeAll" }),
+          );
+        }
+      }
+      expect(fs.readlinkSync(path)).toBe(target);
+      expect(fs.existsSync("/tmp/missing")).toBe(false);
+    }
+    await new Promise<void>((resolve, reject) => {
+      fs.writeFile(
+        "/tmp/dangling",
+        "data",
+        (error: NodeJS.ErrnoException | null) => {
+          try {
+            expect(error?.code).toBe("EEXIST");
+            expect(fs.existsSync("/tmp/missing")).toBe(false);
+            resolve();
+          } catch (cause) {
+            reject(cause);
+          }
+        },
+      );
+    });
+    fs.symlinkSync("/tmp/file", "/tmp/valid");
+    fs.appendFileSync("/tmp/valid", "!");
+    expect(fs.readFileSync("/tmp/file", "utf8")).toBe("original!");
+  });
+});
