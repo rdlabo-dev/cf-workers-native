@@ -234,6 +234,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            demo/android/**/*.gradle
+            demo/android/gradle/wrapper/gradle-wrapper.properties
+            native/android/build.gradle
+            demo/opennext/package.json
       - run: npm install --prefix demo/opennext
         if: matrix.native
       - name: Enable emulator acceleration
