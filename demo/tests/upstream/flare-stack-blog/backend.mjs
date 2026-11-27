@@ -11,7 +11,7 @@ export const root = fileURLToPath(
     import.meta.url,
   ),
 );
-export async function startBackend() {
+export async function startWorker(authOrigin = "https://worker.invalid") {
   const compiled = await build({
     entryPoints: [
       join(root, ".cloudflare/output/v0/workers/default/bundle/index.js"),
@@ -34,7 +34,7 @@ export async function startBackend() {
       compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
       bindings: {
         BETTER_AUTH_SECRET: "local-acceptance-secret-at-least-32-characters",
-        BETTER_AUTH_URL: "https://worker.invalid",
+        BETTER_AUTH_URL: authOrigin,
         DOMAIN: "worker.invalid",
         LOCALE: "en",
         GITHUB_CLIENT_ID: "unused",
@@ -65,6 +65,15 @@ export async function startBackend() {
       for (const statement of unstable_splitSqlQuery(sql))
         await db.prepare(statement).run();
     }
+    return { worker, db };
+  } catch (error) {
+    await worker.dispose();
+    throw error;
+  }
+}
+export async function startBackend() {
+  const { worker, db } = await startWorker();
+  try {
     const content = {
       type: "doc",
       content: [

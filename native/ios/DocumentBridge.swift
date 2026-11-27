@@ -241,6 +241,17 @@ final class DocumentSchemeHandler: NSObject, WKURLSchemeHandler, WKScriptMessage
         }
         let id = UUID().uuidString
         request["id"] = id
+        // Script-message fetches bypass WebKit's network header generation.
+        // Derive Origin from the sending frame for state-changing requests.
+        if let method = request["method"] as? String,
+           !["GET", "HEAD", "OPTIONS"].contains(method.uppercased()) {
+            var headers = request["headers"] as? [String: String] ?? [:]
+            if !headers.keys.contains(where: { $0.caseInsensitiveCompare("Origin") == .orderedSame }),
+               let origin = localInitiator(message.frameInfo) {
+                headers["Origin"] = origin
+                request["headers"] = headers
+            }
+        }
         let streamId = request["streamId"] as? String ?? id
         fetchReplies[id] = replyHandler
         fetchRequests[id] = request
