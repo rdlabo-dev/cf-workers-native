@@ -281,6 +281,8 @@ jobs:
             demo/artifacts/upstream/${{ matrix.native }}/native/android-error.log
             demo/artifacts/upstream/${{ matrix.native }}/session-native/android-*.json
             demo/artifacts/upstream/${{ matrix.native }}/session-native/android-error.log
+            demo/artifacts/upstream/${{ matrix.native }}/expired-session-native/android-*.json
+            demo/artifacts/upstream/${{ matrix.native }}/expired-session-native/android-error.log
             demo/artifacts/opennext-native/android-*.json
             demo/artifacts/opennext-native/android-error.log
             demo/artifacts/opennext-releases/native/android-*.json

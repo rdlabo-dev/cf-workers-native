@@ -319,7 +319,7 @@ export async function runNativeAcceptance({
         !backend.reports.some((r) => r.stage === "complete"),
         "Scenario completed before relaunch",
       );
-      restart.afterStop();
+      await restart.afterStop();
       const relaunchedPid = await launch();
       assert.ok(
         Number.isSafeInteger(relaunchedPid) &&
