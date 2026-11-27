@@ -100,14 +100,20 @@
     const option = () => document.getElementById("note-option-" + noteId);
     // The app can reopen the editor directly on reload, without mounting the list.
     await wait(() => restoredBody() || option());
+    const restorationActions = [];
     if (!restoredBody()) {
-      option()?.click();
+      const noteOption = option();
+      if (noteOption) {
+        noteOption.click();
+        restorationActions.push("select-note");
+      }
       const mobileEdit = [
         ...document.querySelectorAll("nav.mobile-bottom-nav button"),
       ].find((button) => button.textContent.trim() === "Edit");
       if (mobileEdit) {
         await wait(() => !mobileEdit.disabled);
         mobileEdit.click();
+        restorationActions.push("edit");
       }
     }
     await wait(restoredBody);
@@ -118,6 +124,7 @@
       throw Error("Unexpected stored note after reload");
     await report({
       stage: "complete",
+      restorationActions,
       platform: window.Capacitor?.getPlatform?.() ?? "browser",
     });
   } catch (error) {
