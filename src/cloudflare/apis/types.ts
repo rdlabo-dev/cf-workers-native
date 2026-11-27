@@ -5,3 +5,8 @@ declare module "cloudflare:node" {
   export const connectHandler: typeof import("./cloudflare-node/index.js").connectHandler;
   export const httpServerHandler: typeof import("./cloudflare-node/index.js").httpServerHandler;
 }
+
+declare module "cloudflare:workers" {
+  export const env: typeof import("./cloudflare-workers/index.js").env;
+  export const DurableObject: typeof import("./cloudflare-workers/index.js").DurableObject;
+}
