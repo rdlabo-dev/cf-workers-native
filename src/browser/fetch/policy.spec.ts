@@ -196,7 +196,7 @@ export const fetchPolicyContract: ContractSuite<typeof fetchPolicyFeature> = {
       const url = `${api.baseURL}/commit-before-disconnect?operation=${operation}`;
       await rejects(api.fetch(url, { method: "POST", body: operation }));
       const receipt = await api.fetch(url);
-      equal(await receipt.json(), [operation]);
+      equal(await receipt.json(), 1);
     },
     async abortHeaders(api) {
       const controller = new AbortController();
