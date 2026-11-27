@@ -93,6 +93,9 @@
       await bytes.text(),
       "application/xml",
     );
+    const urls = [...parsed.querySelectorAll("outline[xmlUrl]")]
+      .map((outline) => outline.getAttribute("xmlUrl"))
+      .sort();
     const importedFeed = parsed.querySelector(
       'outline[xmlUrl="https://feeds.example.invalid/design.xml"]',
     );
@@ -100,7 +103,9 @@
       parsed.querySelector("parsererror") ||
       importedFeed?.getAttribute("title") !== "設計 & café" ||
       importedFeed.parentElement?.getAttribute("text") !== "購読 & テスト" ||
-      parsed.querySelectorAll("outline[xmlUrl]").length !== 2
+      urls.length !== 2 ||
+      urls[0] !== "https://example.com/feed.xml" ||
+      urls[1] !== "https://feeds.example.invalid/design.xml"
     )
       throw Error("OPML export did not preserve subscriptions");
     await importSubscriptions(
