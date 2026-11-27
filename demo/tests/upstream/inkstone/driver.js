@@ -61,8 +61,15 @@
       );
       await wait(editor);
       editor().focus();
-      if (!document.execCommand("insertText", false, body))
-        throw Error("Editor rejected text insertion");
+      const clipboard = new DataTransfer();
+      clipboard.setData("text/plain", body);
+      editor().dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: clipboard,
+        }),
+      );
       // Reload only after the original autosave request has persisted server-side.
       const end = Date.now() + 15000;
       while (Date.now() < end) {
