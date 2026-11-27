@@ -32,6 +32,17 @@ import { createAuthClient } from "better-auth/client";
     const email = "reader@example.com";
     const relaunched = document.body.dataset.relaunch === "true";
     if (location.pathname === "/session-test") {
+      if (relaunched && document.body.dataset.expiryScenario === "true") {
+        if (await user()) throw Error("Expired session restored after restart");
+        const account = await fetch("/session-test/account");
+        if (account.status !== 401)
+          throw Error("Expired session opened protected page");
+        await report({
+          stage: "complete",
+          platform: window.Capacitor.getPlatform(),
+        });
+        return;
+      }
       if (relaunched) {
         if ((await user()) !== email)
           throw Error("Session lost on process restart");

@@ -25,7 +25,7 @@ async function seedUser(db) {
     .bind(await hashPassword("local-fixture-password"))
     .run();
 }
-async function sessionFixture() {
+async function sessionFixture(expireOnStop = false) {
   let worker;
   let authenticatedHeaders;
   let relaunch = false;
@@ -83,7 +83,7 @@ async function sessionFixture() {
         heading = "reader@example.com";
       }
       return new Response(
-        `<html><body data-auth-origin="${origin}" data-relaunch="${relaunch}"><h1>${heading}</h1></body></html>`,
+        `<html><body data-auth-origin="${origin}" data-relaunch="${relaunch}" data-expiry-scenario="${expireOnStop}"><h1>${heading}</h1></body></html>`,
         {
           headers: { "content-type": "text/html", "cache-control": "no-store" },
         },
@@ -97,7 +97,13 @@ async function sessionFixture() {
     return {
       ...backend,
       db: initialized.db,
-      afterStop() {
+      async afterStop() {
+        if (expireOnStop) {
+          const result = await initialized.db
+            .prepare("UPDATE session SET expires_at=1 WHERE user_id='reader'")
+            .run();
+          assert.equal(result.meta.changes, 1);
+        }
         relaunch = true;
       },
       async checkRevocation() {
@@ -181,6 +187,53 @@ test(
             .first("n"),
           0,
         );
+      },
+    });
+  },
+);
+
+test(
+  "an expired Better Auth session denies access after native process restart",
+  { timeout: 600000 },
+  async () => {
+    const backend = await sessionFixture(true);
+    await runNativeAcceptance({
+      backend,
+      worker: join(
+        root,
+        ".cloudflare/output/v0/workers/default/bundle/index.js",
+      ),
+      workerConfig: fileURLToPath(new URL("worker.jsonc", import.meta.url)),
+      kvExecution: { KV: "remote" },
+      render: "/session-test",
+      restart: { stage: "ready-for-restart", afterStop: backend.afterStop },
+      artifacts: join(root, "../expired-session-native"),
+      validate: async (backend, platform) => {
+        assert.equal(
+          backend.reports.find((r) => r.stage === "complete").platform,
+          platform,
+        );
+        assert.deepEqual(
+          backend.requests
+            .filter((r) => r.path === "/session-test/account")
+            .map((r) => r.status),
+          [200, 200, 401],
+        );
+        assert.deepEqual(
+          backend.requests
+            .filter(
+              (r) =>
+                r.path === "/api/auth/sign-in/email" && r.method === "POST",
+            )
+            .map((r) => r.status),
+          [200],
+        );
+        assert.equal(
+          backend.requests.filter((r) => r.path === "/api/auth/sign-out")
+            .length,
+          0,
+        );
+        await backend.checkRevocation();
       },
     });
   },
