@@ -6,6 +6,7 @@ import path from "node:path";
 
 const here = fileURLToPath(new URL("./", import.meta.url));
 const device = process.argv[2];
+const recovery = process.argv.includes("session-recovery");
 const lifecycle = process.argv.includes("--lifecycle");
 if (lifecycle) {
   const response = await fetch("http://127.0.0.1:18764/ok", {
@@ -49,7 +50,9 @@ await writeFile(
   path.join(artifacts, "webview.txt"),
   adb("shell", "dumpsys", "webviewupdate"),
 );
-for (const scenario of ["normal", "startup-failure", "broken-entry"])
+for (const scenario of recovery
+  ? ["session-recovery"]
+  : ["normal", "startup-failure", "broken-entry"])
   run(process.execPath, ["../build-web.mjs", "android", scenario]);
 if (!centralOnly)
   run(gradle, [
@@ -105,7 +108,7 @@ function labelledNode(xml, text) {
 // Use the rendered DOM only for fixture web elements; native host checks stay UI-based.
 async function renderedWebNode(text, xml) {
   if (
-    !/^(Worker Home|Worker Next|Posted verified|Network recovered|Network interrupted|Next|Submit|Check network|Interrupt network)$/.test(
+    !/^(Worker Home|Worker Next|Posted verified|Network recovered|Network interrupted|Next|Submit|Check network|Interrupt network|Sign in and save|Saved for reader@example\.com)$/.test(
       text,
     )
   )
@@ -246,15 +249,28 @@ async function crashRenderer() {
         socket.close();
         reject(new Error("Renderer did not crash"));
       }, 10_000);
+      let crashRequested = false;
       const done = () => {
         clearTimeout(timer);
         socket.close();
         resolve();
       };
-      socket.addEventListener("open", () =>
-        socket.send(JSON.stringify({ id: 1, method: "Page.crash" })),
-      );
-      socket.addEventListener("close", done, { once: true });
+      socket.addEventListener("open", () => {
+        socket.send(JSON.stringify({ id: 1, method: "Page.crash" }));
+        crashRequested = true;
+      });
+      // Killing the renderer can surface as a WebSocket error before close.
+      // The caller independently verifies that the native host became visible.
+      const disconnected = () => {
+        if (crashRequested) done();
+        else {
+          clearTimeout(timer);
+          reject(
+            new Error("Debugger disconnected before requesting renderer crash"),
+          );
+        }
+      };
+      socket.addEventListener("close", disconnected, { once: true });
       socket.addEventListener("message", (event) => {
         const message = JSON.parse(event.data);
         if (message.method === "Inspector.targetCrashed") done();
@@ -264,14 +280,7 @@ async function crashRenderer() {
           reject(new Error(JSON.stringify(message.error)));
         }
       });
-      socket.addEventListener(
-        "error",
-        () => {
-          clearTimeout(timer);
-          reject(new Error("Debugger connection failed"));
-        },
-        { once: true },
-      );
+      socket.addEventListener("error", disconnected, { once: true });
     });
   } finally {
     adb("forward", "--remove", `tcp:${port}`);
@@ -296,6 +305,29 @@ async function acceptance() {
   try {
     await waitFor("Native host visits 0");
     await waitFor("Host service worker host-sw-retained");
+    if (recovery) {
+      const port = new URL(process.env.WORKERS_SESSION_ORIGIN).port;
+      adb("reverse", "tcp:" + port, "tcp:" + port);
+      try {
+        await tap("Open Worker");
+        await waitFor("Sign in and save");
+        await tap("Sign in and save");
+        await waitFor("Saved for reader@example.com");
+        adb("shell", "input", "keyevent", "4");
+        await waitFor("Native host visits 1");
+        await tap("Open Worker");
+        await waitFor("Saved for reader@example.com");
+        await crashRenderer();
+        await waitFor("Native host visits 2");
+        await tap("Open Worker");
+        await waitFor("Saved for reader@example.com");
+        adb("shell", "input", "keyevent", "4");
+        await waitFor("Native host visits 3");
+      } finally {
+        adb("reverse", "--remove", "tcp:" + port);
+      }
+      return;
+    }
     const startedAt = Date.now();
     await tap("Open Worker");
     await waitFor("Worker Home");
@@ -492,7 +524,20 @@ async function acceptance() {
       if (value === "null") adb("shell", "settings", "delete", "system", name);
       else adb("shell", "settings", "put", "system", name, value);
     }
-    await writeFile(path.join(artifacts, "runtime.log"), adb("logcat", "-d"));
+    await writeFile(
+      path.join(artifacts, "runtime.log"),
+      recovery
+        ? adb(
+            "logcat",
+            "-d",
+            "-s",
+            "HostIsolation:I",
+            "WorkersNative:E",
+            "ActivityManager:I",
+            "*:S",
+          )
+        : adb("logcat", "-d"),
+    );
     await writeFile(
       path.join(artifacts, "host-isolation.log"),
       adb("logcat", "-d", "-s", "HostIsolation:I", "*:S"),

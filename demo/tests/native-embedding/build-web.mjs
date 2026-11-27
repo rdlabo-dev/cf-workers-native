@@ -16,13 +16,28 @@ const platform = process.argv[2];
 const scenario = process.argv[3] ?? "normal";
 if (!["ios", "android"].includes(platform))
   throw new Error("Usage: node build-web.mjs ios|android");
-if (!["normal", "startup-failure", "broken-entry"].includes(scenario))
-  throw new Error("Scenario must be normal, startup-failure or broken-entry");
+if (
+  !["normal", "startup-failure", "broken-entry", "session-recovery"].includes(
+    scenario,
+  )
+)
+  throw new Error("Unknown native embedding scenario");
+const sessionOrigin =
+  scenario === "session-recovery"
+    ? new URL(process.env.WORKERS_SESSION_ORIGIN)
+    : null;
+if (
+  sessionOrigin &&
+  (sessionOrigin.protocol !== "https:" ||
+    sessionOrigin.hostname !== "localhost" ||
+    !sessionOrigin.port)
+)
+  throw Error("Use the local recovery fixture HTTPS origin");
 const root = new URL("./", import.meta.url);
 const output = new URL(
   platform === "ios"
     ? "ios/Sources/Consumer/PrivateWeb/"
-    : `android/app/src/main/assets/sdk-web${scenario === "normal" ? "" : scenario === "startup-failure" ? "-failure" : "-broken"}/`,
+    : `android/app/src/main/assets/sdk-web${scenario === "normal" || sessionOrigin ? "" : scenario === "startup-failure" ? "-failure" : "-broken"}/`,
   root,
 );
 const entry = new URL(`${platform}.js`, distribution);
@@ -31,7 +46,7 @@ await build({
   absWorkingDir: fileURLToPath(root),
   stdin: {
     contents: `import { ${platform === "ios" ? "workersIOS" : "workersAndroid"} as create } from ${JSON.stringify(fileURLToPath(entry))};
-const app = create({baseURL:"https://worker.invalid",render:"/"});
+const app = create(${JSON.stringify(sessionOrigin ? { baseURL: sessionOrigin.origin, remote: { origin: sessionOrigin.origin }, render: "/" } : { baseURL: "https://worker.invalid", render: "/" })});
 app.ready.catch(error => { console.error("EMBED_START_FAILED", error); });`,
     resolveDir: fileURLToPath(root),
     sourcefile: "native-entry.js",
@@ -44,7 +59,7 @@ app.ready.catch(error => { console.error("EMBED_START_FAILED", error); });`,
     workersCapacitorPlugin({
       worker:
         scenario === "startup-failure" ? "./worker-failure.js" : "./worker.js",
-      execution: "local",
+      execution: sessionOrigin ? "network" : "local",
     }),
   ],
 });

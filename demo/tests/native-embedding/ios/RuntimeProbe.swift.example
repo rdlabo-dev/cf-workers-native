@@ -13,13 +13,13 @@ import WebKit
  }
  throw URLError(.timedOut)
 }
-@MainActor func waitForWorkerHome(in controller: WorkersViewController) async throws -> (CAPBridgeViewController, WKWebView) {
+@MainActor func waitForWorkerPage(in controller: WorkersViewController, text: String = "Worker Home") async throws -> (CAPBridgeViewController, WKWebView) {
  for _ in 0..<200 {
   if let runtime = controller.children.first as? CAPBridgeViewController,
      let document = runtime.children.first as? CAPBridgeViewController,
      let page = document.webView {
    let value = try? await page.evaluateJavaScript("document.body.innerText")
-   if (value as? String)?.contains("Worker Home") == true { return (runtime, page) }
+   if (value as? String)?.contains(text) == true { return (runtime, page) }
   }
   try await Task.sleep(nanoseconds: 100_000_000)
  }
@@ -62,6 +62,38 @@ import WebKit
   host.addChild(child); child.view.frame = CGRect(x:20,y:100,width:350,height:600)
   host.view.addSubview(child.view); child.didMove(toParent: host)
   window.rootViewController = host; window.makeKeyAndVisible(); self.window = window
+  if CommandLine.arguments.contains("session-recovery") {
+   Task { @MainActor in
+    @MainActor func reopen(_ previous: WorkersViewController) async throws -> WorkersViewController {
+     try await previous.close()
+     previous.willMove(toParent: nil); previous.view.removeFromSuperview(); previous.removeFromParent()
+     let next = try makeEmbeddedController()
+     host.addChild(next); next.view.frame = host.view.bounds
+     host.view.addSubview(next.view); next.didMove(toParent: host)
+     return next
+    }
+    let (_, page) = try! await waitForWorkerPage(in: child, text: "Sign in and save")
+    _ = try! await page.evaluateJavaScript("document.querySelector('button').click()")
+    let saved = "Saved for reader@example.com"
+    try! await waitForText(saved, in: page)
+    let reopened = try! await reopen(child)
+    let (_, second) = try! await waitForWorkerPage(in: reopened, text: saved)
+    // Simulator-only probe: report the PID of this specific document.
+    let pid = second.value(forKey: "_webProcessIdentifier") as! Int32
+    assert(pid > 1)
+    print("SDK_RECOVERY_RENDERER", pid); fflush(stdout)
+    for _ in 0..<100 {
+     if kill(pid, 0) != 0 && errno == ESRCH { break }
+     try! await Task.sleep(nanoseconds: 100_000_000)
+    }
+    assert(kill(pid, 0) != 0 && errno == ESRCH)
+    let recovered = try! await reopen(reopened)
+    _ = try! await waitForWorkerPage(in: recovered, text: saved)
+    try! await recovered.close()
+    print("SDK_AUTH_RECOVERY_COMPLETE"); fflush(stdout)
+   }
+   return
+  }
   if CommandLine.arguments.contains("broken-entry") {
    let shownAt = Date()
    var closedNotifications = 0
@@ -98,7 +130,7 @@ import WebKit
   }
   Task { @MainActor in
      let startedAt = Date()
-     let (runtime, page) = try! await waitForWorkerHome(in: child)
+     let (runtime, page) = try! await waitForWorkerPage(in: child)
      print("SDK_DOCUMENT Worker Home")
      print("SDK_READY_MS", Date().timeIntervalSince(startedAt) * 1000)
      if CommandLine.arguments.contains("--lifecycle") {
@@ -139,7 +171,7 @@ import WebKit
      assert(child.children.isEmpty && runtime.children.isEmpty)
      let reopened = try! makeEmbeddedController()
      window.rootViewController = UIHostingController(rootView: WorkersView(controller: reopened))
-     _ = try! await waitForWorkerHome(in: reopened)
+     _ = try! await waitForWorkerPage(in: reopened)
      print("SDK_REOPENED_SWIFTUI Worker Home")
      window.rootViewController = UIViewController()
      try! await waitForDismantle(reopened)
