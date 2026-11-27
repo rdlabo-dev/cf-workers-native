@@ -391,9 +391,28 @@ installOperation("copyFile", (source: any, destination: any, mode = 0) => {
     throw Object.assign(new Error("The operation is not supported"), {
       code: "ERR_UNSUPPORTED_OPERATION",
     });
+  writablePath(destination, "copyFile");
+  const entry = api.lstatSync(destination, { throwIfNoEntry: false });
+  if (
+    (entry?.isFile() || entry?.isSymbolicLink()) &&
+    (mode !== 1 || !api.existsSync(destination)) &&
+    api.statSync(source, { throwIfNoEntry: false })?.isFile()
+  ) {
+    // Publish a complete new inode. Open handles and aliases retain the old file.
+    const staging = temporary.mkdtempSync("/tmp/.copy-");
+    const staged = staging + "/file";
+    try {
+      if (temporaryPath(source)) temporaryCopyFile(source, staged, 0);
+      else
+        temporary.writeFileSync(staged, embedded.readFileSync(pathOf(source)));
+      temporary.renameSync(staged, destination);
+    } finally {
+      temporary.rmSync(staging, { recursive: true, force: true });
+    }
+    return;
+  }
   if (temporaryPath(source))
     return temporaryCopyFile(source, destination, mode);
-  writablePath(destination, "copyFile");
   if (mode === 1 && api.existsSync(destination))
     throw Object.assign(new Error("File already exists"), { code: "EEXIST" });
   temporary.writeFileSync(destination, embedded.readFileSync(pathOf(source)));
