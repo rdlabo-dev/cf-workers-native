@@ -1,8 +1,7 @@
 import { waitForAcceptance } from "../../native/reports.mjs";
 import { test } from "node:test";
-import assert from "node:assert/strict";
 import { chromium, webkit } from "@playwright/test";
-import { startBackend } from "./backend.mjs";
+import { verifyLink, startBackend } from "./backend.mjs";
 for (const engine of [chromium, webkit])
   test(
     `Sink original Worker in ${engine.name()}`,
@@ -15,11 +14,7 @@ for (const engine of [chromium, webkit])
         const page = await browser.newPage({ ignoreHTTPSErrors: true });
         await page.goto(new URL("/dashboard/login", backend.url).href);
         await waitForAcceptance(backend, 40000);
-        const row = await backend.db
-          .prepare("SELECT url FROM links WHERE slug = ?")
-          .bind("capacitor-acceptance")
-          .first();
-        assert.equal(row?.url, "https://example.com/capacitor-acceptance");
+        await verifyLink(backend);
       } finally {
         try {
           await browser?.close();
