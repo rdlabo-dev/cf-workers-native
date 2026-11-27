@@ -170,6 +170,50 @@ test("embedded files can be copied into temporary files without exposing mutable
   });
 });
 
+test("a failed copy preserves the destination file and any link to it", async () => {
+  await runWithTemporaryFiles(async () => {
+    fs.mkdirSync("/tmp/source-directory");
+    fs.writeFileSync("/tmp/keep", "original");
+    fs.symlinkSync("/tmp/keep", "/tmp/link-to-keep");
+    for (const dest of ["/tmp/keep", "/tmp/link-to-keep"]) {
+      for (const mode of [0, fs.constants.COPYFILE_FICLONE]) {
+        expect(() =>
+          fs.copyFileSync("/tmp/source-directory", dest, mode),
+        ).toThrow(expect.objectContaining({ code: "EISDIR" }));
+        expect(fs.readFileSync("/tmp/keep", "utf8")).toBe("original");
+        expect(fs.lstatSync("/tmp/link-to-keep").isSymbolicLink()).toBe(true);
+      }
+      await expect(
+        fs.promises.copyFile(
+          "/tmp/missing-source",
+          dest,
+          fs.constants.COPYFILE_EXCL,
+        ),
+      ).rejects.toMatchObject({ code: "EEXIST" });
+    }
+  });
+});
+
+test("copying a directory preserves a dangling destination link", () => {
+  runWithTemporaryFiles(() => {
+    fs.mkdirSync("/tmp/source-directory");
+    fs.writeFileSync("/tmp/removed", "old");
+    fs.symlinkSync("/tmp/removed", "/tmp/dangling");
+    fs.unlinkSync("/tmp/removed");
+    for (const mode of [
+      0,
+      fs.constants.COPYFILE_EXCL,
+      fs.constants.COPYFILE_FICLONE,
+    ]) {
+      expect(() =>
+        fs.copyFileSync("/tmp/source-directory", "/tmp/dangling", mode),
+      ).toThrow(expect.objectContaining({ code: "EISDIR" }));
+      expect(fs.readlinkSync("/tmp/dangling")).toBe("/tmp/removed");
+      expect(fs.existsSync("/tmp/removed")).toBe(false);
+    }
+  });
+});
+
 test("permission operations preserve file metadata and statfs is a Workers stub", async () => {
   await runWithTemporaryFiles(async () => {
     fs.writeFileSync("/tmp/data", "content");
