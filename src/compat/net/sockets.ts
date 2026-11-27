@@ -43,15 +43,20 @@ export function connect(
   const separator = address.lastIndexOf(":");
   const hostname = address.slice(0, separator).replace(/^\[|\]$/g, "");
   const portText = address.slice(separator + 1);
-  if (separator < 1 || !/^\d+$/.test(portText))
+  if (separator < 1 || /[\s/\\@?#]/.test(hostname) || !/^\d+$/.test(portText))
     throw new TypeError("Invalid TCP address");
+  // Older Android WebViews treat non-special schemes as opaque URLs.
+  // Parse the authority with HTTP, retaining an explicitly supplied port 80.
   const url = new URL(
-    `tcp://${hostname.includes(":") ? `[${hostname}]` : hostname}:${portText}`,
+    `http://${hostname.includes(":") ? `[${hostname}]` : hostname}:${portText}`,
   );
-  const port = Number(url.port);
+  const port = Number(portText);
   if (
     !url.hostname ||
     !port ||
+    port > 65535 ||
+    url.search ||
+    url.hash ||
     url.username ||
     url.password ||
     (url.pathname && url.pathname !== "/")

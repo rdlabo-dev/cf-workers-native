@@ -100,6 +100,22 @@ it("bounds writes and keeps the read half alive after end", async () => {
   expect(call.mock.calls.at(-1)?.[1]).toBe("socketClose");
 });
 
+it("passes an explicit port 80 to the native transport", async () => {
+  const call = vi.fn<NativeCall>(async (_, method) =>
+    method === "socketWatch" ? new Promise(() => {}) : {},
+  );
+  restore = setNativeCall(call);
+  const socket = connect("10.0.2.2:80");
+  await socket.opened;
+  expect(call).toHaveBeenCalledWith("WorkersCapacitor", "socketOpen", {
+    id: expect.any(String),
+    host: "10.0.2.2",
+    port: 80,
+    tls: false,
+  });
+  await socket.close();
+});
+
 it("normalizes bracketed and unbracketed IPv6 authorities", async () => {
   const call = vi.fn<NativeCall>(async (_, method) =>
     method === "socketWatch" ? new Promise(() => {}) : {},
