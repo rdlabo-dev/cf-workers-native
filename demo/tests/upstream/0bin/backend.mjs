@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { readFile, readdir } from "node:fs/promises";
@@ -61,4 +62,29 @@ export async function startBackend() {
     dispose: () => worker.dispose(),
   });
   return { ...backend, db };
+}
+
+export async function verifyPastes(backend, report) {
+  const { results } = await backend.db
+    .prepare("SELECT id,ciphertext,kind FROM pastes ORDER BY kind")
+    .all();
+  assert.deepEqual(
+    results.map((row) => [row.kind, row.id]),
+    [
+      ["file", report.fileId],
+      ["text", report.id],
+    ],
+  );
+  for (const row of results) {
+    const envelope = Buffer.from(row.ciphertext, "base64url");
+    assert.equal(envelope[0], 1);
+    assert.ok(
+      envelope.length > 1 + 12 + 16,
+      "Expected IV, encrypted payload and authentication tag",
+    );
+    assert.ok(
+      !envelope.includes(Buffer.from("Capacitor encrypted acceptance")),
+    );
+    assert.ok(!envelope.includes(Buffer.from("色見本.png")));
+  }
 }

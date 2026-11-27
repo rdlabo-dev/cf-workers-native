@@ -2,7 +2,7 @@
 
 `upstream.json` pins the MIT-licensed [0bin-cloudflare](https://github.com/h1n054ur/0bin-cloudflare) application. Preparation installs its Bun lockfile and builds the original TanStack Start/Hono Worker without source changes.
 
-The same HTML driver operates the original React form in Chromium, WebKit and the native WebView. It enters text, submits the form, follows the app's document navigation with its URL-fragment key, and waits for the decrypted text. The test verifies that D1 contains ciphertext and that the displayed paste ID matches the stored record. CSP and browser cryptography remain enabled. Turnstile is disabled through the app's supported configuration; the test does not validate Turnstile, clipboard permissions, file sharing or every editor feature.
+The same HTML driver operates the original React form in Chromium, WebKit and the native WebView. It enters text, submits the form, follows the app's document navigation with its URL-fragment key, and waits for the decrypted text. It then attaches a Japanese-named PNG via the original file input, submits it, and verifies both decoded pixels in the displayed image. The test checks that both paste IDs and kinds match the ciphertext records in D1. CSP and browser cryptography remain enabled. Turnstile is disabled through the app's supported configuration; the test does not validate Turnstile, clipboard permissions, the OS file picker, OS downloads or every editor feature.
 
 From the repository root, after installing the root/demo dependencies and building the library:
 
