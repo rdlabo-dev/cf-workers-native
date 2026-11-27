@@ -194,6 +194,26 @@ test("a failed copy preserves the destination file and any link to it", async ()
   });
 });
 
+test("copying a directory preserves a dangling destination link", () => {
+  runWithTemporaryFiles(() => {
+    fs.mkdirSync("/tmp/source-directory");
+    fs.writeFileSync("/tmp/removed", "old");
+    fs.symlinkSync("/tmp/removed", "/tmp/dangling");
+    fs.unlinkSync("/tmp/removed");
+    for (const mode of [
+      0,
+      fs.constants.COPYFILE_EXCL,
+      fs.constants.COPYFILE_FICLONE,
+    ]) {
+      expect(() =>
+        fs.copyFileSync("/tmp/source-directory", "/tmp/dangling", mode),
+      ).toThrow(expect.objectContaining({ code: "EISDIR" }));
+      expect(fs.readlinkSync("/tmp/dangling")).toBe("/tmp/removed");
+      expect(fs.existsSync("/tmp/removed")).toBe(false);
+    }
+  });
+});
+
 test("permission operations preserve file metadata and statfs is a Workers stub", async () => {
   await runWithTemporaryFiles(async () => {
     fs.writeFileSync("/tmp/data", "content");

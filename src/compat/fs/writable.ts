@@ -372,8 +372,14 @@ function createTemporary() {
           args[1] = mutable(args[1], base, base !== "link");
           // memfs may truncate or unlink an existing destination before discovering
           // that the source cannot be copied. Workers preserves it on failure.
-          if (base === "copyFile" && fs.existsSync(args[1])) {
-            if (args[2] === fs.constants.COPYFILE_EXCL)
+          if (
+            base === "copyFile" &&
+            fs.lstatSync(args[1], { throwIfNoEntry: false })
+          ) {
+            if (
+              args[2] === fs.constants.COPYFILE_EXCL &&
+              fs.existsSync(args[1])
+            )
               throw Object.assign(
                 new Error(`file already exists, copyFile '${args[1]}'`),
                 {
