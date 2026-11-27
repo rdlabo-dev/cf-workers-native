@@ -151,6 +151,37 @@ export function installIo(api: any, promises: any) {
       },
       (args) => [args[1]],
     );
+  const readCallback = api.read;
+  api.read = (fd: number, ...args: any[]) => {
+    if (typeof args[0] === "function")
+      return readCallback(fd, Buffer.alloc(16384), args[0]);
+    const options = args[0];
+    if (
+      options &&
+      typeof options === "object" &&
+      !ArrayBuffer.isView(options)
+    ) {
+      const callback = args[1];
+      const {
+        buffer = Buffer.alloc(16384),
+        offset = 0,
+        length = buffer.byteLength - offset,
+        position = null,
+      } = options;
+      if (!ArrayBuffer.isView(buffer))
+        throw new ERR_INVALID_ARG_TYPE(
+          "options.buffer",
+          ["Buffer", "TypedArray", "DataView"],
+          buffer,
+        );
+      validateUint32(offset, "options.offset");
+      validateUint32(length, "options.length");
+      validatePosition(position, "options.position");
+      validateFunction(callback, "callback");
+      return readCallback(fd, buffer, offset, length, position, callback);
+    }
+    return readCallback(fd, ...args);
+  };
   const writeCallback = api.write;
   api.write = (...args: any[]) => {
     if (
