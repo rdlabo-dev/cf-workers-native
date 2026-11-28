@@ -74,6 +74,7 @@ test(
           (path) => path.startsWith("/_next/static/") && path.endsWith(".js"),
         ),
       );
+      const cert = await readFile(backend.ca);
       const assetResponses = [];
       // Route at the preview server so speculative browser requests also use
       // the same bundled-asset manifest as ordinary page requests.
@@ -84,11 +85,11 @@ test(
         preview: {
           host: "127.0.0.1",
           port: 0,
-          https: backend.tls,
+          https: { key: await readFile(backend.key), cert },
           proxy: {
             "/": {
               target: backend.url.origin,
-              ca: backend.tls.cert,
+              ca: cert,
               bypass(req, res) {
                 const { pathname } = new URL(req.url, backend.url);
                 if (assets.includes(pathname)) {

@@ -81,12 +81,11 @@ export async function startBackend({ native = false, driver, appRoot } = {}) {
       { cwd: certDir, stdio: "pipe" },
     );
     await server.ready;
-    const tls = {
-      key: await readFile(join(certDir, "key.pem")),
-      cert: await readFile(join(certDir, "ca.pem")),
-    };
     https = createServer(
-      tls,
+      {
+        key: await readFile(join(certDir, "key.pem")),
+        cert: await readFile(join(certDir, "ca.pem")),
+      },
       async (req, res) => {
         try {
           if (native) {
@@ -193,11 +192,11 @@ export async function startBackend({ native = false, driver, appRoot } = {}) {
     return {
       url,
       reports,
-      tls,
       requests,
       config,
       db: DB,
       ca: join(certDir, "ca.pem"),
+      key: join(certDir, "key.pem"),
       fetch: (path, init) => dispatch(new URL(path, url).href, init),
       close: async () => {
         await new Promise((resolve) => https.close(resolve));
