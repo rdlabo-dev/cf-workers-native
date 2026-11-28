@@ -1,3 +1,5 @@
+import { DecompressionStream } from "../../compat/stream-web/index.js";
+import { readable } from "../../compat/stream-web/interop.js";
 import { platform } from "../../shared/globals/platform.js";
 import { decompressBrotli } from "../../shared/brotli/index.js";
 import { replayBody } from "../body/index.js";
@@ -91,7 +93,7 @@ export function createFetch(transport: Pick<FetchTransport, "fetch">) {
       if (responseBody && requestEncoding(request) !== "manual") {
         const encoding = responseHeaders.get("content-encoding");
         if (encoding === "gzip")
-          responseBody = responseBody.pipeThrough(
+          responseBody = readable(responseBody).pipeThrough(
             new DecompressionStream("gzip"),
           );
         else if (encoding === "br")

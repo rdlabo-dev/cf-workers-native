@@ -1,3 +1,5 @@
+import { ReadableStream as WorkerReadableStream } from "../../compat/stream-web/runtime.js";
+
 /** Byte transport shared by Web Fetch and node:http; it does not apply HTTP policy. */
 export interface TransportRequest {
   url: string;
@@ -38,9 +40,7 @@ export class FetchTransport {
     request.signal.throwIfAborted();
     let connection: NativeConnection | undefined;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-    let responseController:
-      | ReadableStreamDefaultController<Uint8Array<ArrayBuffer>>
-      | undefined;
+    let responseController: ReadableByteStreamController | undefined;
     let closed = false;
     let closing: Promise<void> | undefined;
     let failure: unknown;
@@ -121,20 +121,27 @@ export class FetchTransport {
           body: null,
         };
       }
-      const body = new ReadableStream<Uint8Array<ArrayBuffer>>(
+      // Produce Workers bytes at the socket boundary. Adapting a host stream
+      // here allocated a WebKit reader for every response, including assets.
+      const body = new WorkerReadableStream(
         {
+          type: "bytes",
           start(controller) {
             responseController = controller;
           },
           async pull(controller) {
             if (closed) return;
             try {
-              const chunk = await Promise.race([current.read(), failed]);
+              let chunk;
+              do {
+                chunk = await Promise.race([current.read(), failed]);
+              } while (chunk?.byteLength === 0 && !closed);
               if (closed) return;
               if (chunk === null) {
                 await close();
                 controller.close();
-              } else controller.enqueue(chunk);
+                controller.byobRequest?.respond(0);
+              } else controller.enqueue(chunk.slice());
             } catch (error) {
               if (closed) controller.error(error);
               else fail(error);

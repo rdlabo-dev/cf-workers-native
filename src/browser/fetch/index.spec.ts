@@ -1,3 +1,4 @@
+import { ReadableStream as WorkerReadableStream } from "../../compat/stream-web/runtime.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   FetchTransport,
@@ -52,6 +53,26 @@ function fixture() {
 }
 
 describe("native byte transport ownership", () => {
+  it("delivers native response bytes directly in an owned BYOB stream", async () => {
+    const { connection, request, transport, respond } = fixture();
+    const bytes = new Uint8Array([65, 66]);
+    vi.mocked(connection.read)
+      .mockResolvedValueOnce(new Uint8Array(0))
+      .mockResolvedValueOnce(bytes)
+      .mockResolvedValueOnce(null);
+    respond();
+    const { body } = await transport.fetch(request);
+    expect(body).toBeInstanceOf(WorkerReadableStream);
+    expect(connection.read).not.toHaveBeenCalled();
+    const reader = body!.getReader({ mode: "byob" });
+    const first = await reader.read(new Uint8Array(4));
+    expect(first.done).toBe(false);
+    expect([...first.value!]).toEqual([65, 66]);
+    expect([...bytes]).toEqual([65, 66]);
+    expect((await reader.read(new Uint8Array(4))).done).toBe(true);
+    expect(connection.close).toHaveBeenCalledTimes(1);
+  });
+
   it("finishes an early response without waiting for the retained replay branch", async () => {
     const f = fixture();
     const accepted = deferred<void>();
