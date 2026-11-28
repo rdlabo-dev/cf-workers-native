@@ -1,3 +1,8 @@
+import {
+  DecompressionStream,
+  ReadableStream as WorkerReadableStream,
+} from "../../compat/stream-web/index.js";
+import { readable } from "../../compat/stream-web/interop.js";
 import { platform } from "../../shared/globals/platform.js";
 import { decompressBrotli } from "../../shared/brotli/index.js";
 import { replayBody } from "../body/index.js";
@@ -44,14 +49,17 @@ export function createFetch(transport: Pick<FetchTransport, "fetch">) {
         throw new TypeError("Fetch only supports HTTP(S) and data URLs");
       url.hash = "";
       headers.set("host", url.host);
-      const response = await transport.fetch({
-        url: url.href,
-        method,
-        headers: [...headers],
-        body,
-        signal: request.signal,
-        encodeResponseBody: "manual",
-      });
+      const response = await transport.fetch(
+        {
+          url: url.href,
+          method,
+          headers: [...headers],
+          body,
+          signal: request.signal,
+          encodeResponseBody: "manual",
+        },
+        WorkerReadableStream,
+      );
       const responseHeaders = new Headers(response.headers);
       const location = responseHeaders.get("location");
       if (
@@ -91,7 +99,7 @@ export function createFetch(transport: Pick<FetchTransport, "fetch">) {
       if (responseBody && requestEncoding(request) !== "manual") {
         const encoding = responseHeaders.get("content-encoding");
         if (encoding === "gzip")
-          responseBody = responseBody.pipeThrough(
+          responseBody = readable(responseBody).pipeThrough(
             new DecompressionStream("gzip"),
           );
         else if (encoding === "br")
