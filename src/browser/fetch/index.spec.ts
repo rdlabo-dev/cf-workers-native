@@ -55,7 +55,9 @@ function fixture() {
 describe("native byte transport ownership", () => {
   it("delivers native response bytes directly in an owned BYOB stream", async () => {
     const { connection, request, transport, respond } = fixture();
-    const bytes = new Uint8Array([65, 66]);
+    const backing = Buffer.alloc(4);
+    backing.set([1, 65, 66, 2]);
+    const bytes = backing.subarray(1, 3);
     vi.mocked(connection.read)
       .mockResolvedValueOnce(new Uint8Array(0))
       .mockResolvedValueOnce(bytes)
@@ -68,7 +70,7 @@ describe("native byte transport ownership", () => {
     const first = await reader.read(new Uint8Array(4));
     expect(first.done).toBe(false);
     expect([...first.value!]).toEqual([65, 66]);
-    expect([...bytes]).toEqual([65, 66]);
+    expect([...backing]).toEqual([1, 65, 66, 2]);
     expect((await reader.read(new Uint8Array(4))).done).toBe(true);
     expect(connection.close).toHaveBeenCalledTimes(1);
   });

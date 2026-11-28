@@ -141,7 +141,7 @@ export class FetchTransport {
                 await close();
                 controller.close();
                 controller.byobRequest?.respond(0);
-              } else controller.enqueue(chunk.slice());
+              } else controller.enqueue(new Uint8Array(chunk));
             } catch (error) {
               if (closed) controller.error(error);
               else fail(error);
