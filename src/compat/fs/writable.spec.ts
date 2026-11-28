@@ -546,3 +546,50 @@ test("rejecting writes to embedded directories does not read their contents", ()
     }
   });
 });
+
+test("whole-file write errors identify the operation when parent traversal fails", async () => {
+  await runWithTemporaryFiles(async () => {
+    const run = retainTemporaryFiles();
+    fs.writeFileSync("/tmp/file", "original");
+    fs.symlinkSync("/tmp/loop", "/tmp/loop");
+    fs.symlinkSync("/tmp/missing", "/tmp/dangling");
+    for (const [parent, regular, exclusive] of [
+      ["file", "ENOTDIR", "ENOTDIR"],
+      ["loop", "ELOOP", "EEXIST"],
+      ["dangling", "ENOENT", "ENOENT"],
+    ]) {
+      const path = `/tmp/${parent}/child`;
+      for (const name of ["writeFile", "appendFile"] as const) {
+        const flag = name === "writeFile" ? "w" : "a";
+        for (const [mode, code] of [
+          [flag, regular],
+          [flag + "x", exclusive],
+        ]) {
+          const writes = [
+            () => fs[`${name}Sync`](path, "new", { flag: mode }),
+            () => fs.promises[name](path, "new", { flag: mode }),
+            () =>
+              new Promise<void>((resolve, reject) =>
+                fs[name](path, "new", { flag: mode }, (error: unknown) =>
+                  error ? reject(error) : resolve(),
+                ),
+              ),
+          ];
+          for (const write of writes) {
+            const failure = await Promise.resolve()
+              .then(() => run(write))
+              .then(
+                () => null,
+                (error) => error,
+              );
+            expect(failure).toMatchObject({ code, syscall: "writeAll" });
+            expect(failure).not.toHaveProperty("errno");
+            if (code === "ENOENT") expect(failure.path).toBe(path);
+            else expect(failure).not.toHaveProperty("path");
+          }
+        }
+      }
+    }
+    expect(run(() => fs.readFileSync("/tmp/file", "utf8"))).toBe("original");
+  });
+});
