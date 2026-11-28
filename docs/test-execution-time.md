@@ -19,6 +19,10 @@ Short suites with matching Node versions share setup and run sequentially:
 - Node 22: build-tools, minvoice/authentication, upstream OpenNext.
 - Node 24.21.0: Void, pknotes.
 
+The workers and void-and-pknotes suites each typecheck the demo before fixture
+preparation, covering Node 22 and 24.21.0 respectively. The library and
+authentication fixture have their own TypeScript projects and checks.
+
 Grouping these five suites into two jobs removes three setup sequences. Every
 original test/preparation command remains in its original order within its suite.
 Each shell step fails on the first failing command. A failure may prevent later

@@ -197,15 +197,17 @@ it("analyzes Workers even without configured server bindings", async () => {
   const directory = resolve(root, "plain");
   await mkdir(directory);
   const entry = resolve(directory, "index.ts");
-  await writeFile(entry, 'export default {fetch(){return new Response("ok")}}');
-  expect(
-    await serverModules(entry, directory, {
-      d1Bindings: [],
-      hyperdriveBindings: [],
-    }).get(),
-  ).toMatchObject({
-    mode: "worker",
-    selector: "export function needsRemote() { return true; }",
-  });
-  expect(await readFile(entry, "utf8")).toContain('new Response("ok")');
+  const original = 'export default {fetch(){return new Response("ok")}}';
+  await writeFile(entry, original);
+  const result = await serverModules(entry, directory, {
+    d1Bindings: [],
+    hyperdriveBindings: [],
+  }).get();
+  expect(result?.mode).toBe("worker");
+  const { needsRemote } = await select(result!.selector);
+  for (const method of ["GET", "POST"])
+    expect(
+      await needsRemote(new Request("https://worker.invalid/", { method })),
+    ).toBe(true);
+  expect(await readFile(entry, "utf8")).toBe(original);
 });

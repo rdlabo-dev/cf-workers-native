@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -10,7 +13,7 @@ const exports = JSON.parse(
   await readFile(new URL("exports.json", import.meta.url), "utf8"),
 );
 
-test("API reference index retains every pinned module and export without implying behavior coverage", () => {
+test("API reference index retains every pinned module and export", () => {
   assert.deepEqual(referenceIndex.profile, exports.profile);
   assert.deepEqual(
     referenceIndex.modules.map((m) => m.module),
@@ -25,12 +28,33 @@ test("API reference index retains every pinned module and export without implyin
     for (const entry of module.exports)
       for (const id of entry.cases) assert.ok(ids.has(id), id);
   }
-  assert.match(referenceIndex.scope, /not behavioral coverage/);
 });
 
 test("reviewed operation rows refer to registered named tests and valid API targets", async () => {
   assert.deepEqual(operations.profile, exports.profile);
   const ids = new Set();
+  const root = fileURLToPath(new URL("../../../../", import.meta.url));
+  const unitFiles = [
+    ...new Set(
+      operations.operations
+        .filter((operation) => !operation.targets.includes("workerd"))
+        .map((operation) => operation.test.file),
+    ),
+  ];
+  const collected = unitFiles.length
+    ? JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            resolve(root, "node_modules/vitest/vitest.mjs"),
+            "list",
+            ...unitFiles,
+            "--json",
+          ],
+          { cwd: root, encoding: "utf8" },
+        ),
+      )
+    : [];
   for (const operation of operations.operations) {
     assert.ok(!ids.has(operation.id), operation.id);
     ids.add(operation.id);
@@ -94,12 +118,12 @@ test("reviewed operation rows refer to registered named tests and valid API targ
           `Missing native target: ${id}/${target}`,
         );
     } else {
-      const configuration = await readFile(
-        new URL("../../../../vitest.config.ts", import.meta.url),
-        "utf8",
-      );
       assert.ok(
-        configuration.includes(JSON.stringify(operation.test.file)),
+        collected.some(
+          (item) =>
+            item.file === resolve(root, operation.test.file) &&
+            item.name === operation.test.case,
+        ),
         `Unit case is not registered: ${id}`,
       );
     }
