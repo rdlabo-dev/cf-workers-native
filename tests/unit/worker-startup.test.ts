@@ -63,19 +63,27 @@ it("reports an actual bootstrap import rejection without Worker.onerror and rele
             path,
             namespace: "fixture",
           }));
-          builder.onLoad(
-            { filter: /.*/, namespace: "fixture" },
-            ({ path }) => ({
-              contents:
-                path === networkRelayPath
-                  ? "export async function initializeWorkerNetwork() { await new Promise(resolve => setTimeout(resolve, 0)); recordBootstrapStage('network ready'); }"
-                  : path === globalsInstallPath
-                    ? "recordBootstrapStage('globals installed');"
-                    : path === transportPath
-                      ? "export function serve() { throw new Error('Must not serve'); }"
-                      : "recordBootstrapStage('worker evaluated'); throw new RangeError('user module initialization'); export default {};",
-            }),
-          );
+          const modules = new Map([
+            [
+              networkRelayPath,
+              "export async function initializeWorkerNetwork() { await new Promise(resolve => setTimeout(resolve, 0)); recordBootstrapStage('network ready'); }",
+            ],
+            [globalsInstallPath, "recordBootstrapStage('globals installed');"],
+            [
+              transportPath,
+              "export function serve() { throw new Error('Must not serve'); }",
+            ],
+            [
+              "user-entry",
+              "recordBootstrapStage('worker evaluated'); throw new RangeError('user module initialization'); export default {};",
+            ],
+          ]);
+          builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => {
+            const contents = modules.get(path);
+            if (contents === undefined)
+              throw new Error("Unexpected bootstrap import: " + path);
+            return { contents };
+          });
         },
       },
     ],
