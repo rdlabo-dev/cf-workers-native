@@ -63,7 +63,7 @@ describe("native byte transport ownership", () => {
       .mockResolvedValueOnce(bytes)
       .mockResolvedValueOnce(null);
     respond();
-    const { body } = await transport.fetch(request);
+    const { body } = await transport.fetch(request, WorkerReadableStream);
     expect(body).toBeInstanceOf(WorkerReadableStream);
     expect(connection.read).not.toHaveBeenCalled();
     const reader = body!.getReader({ mode: "byob" });

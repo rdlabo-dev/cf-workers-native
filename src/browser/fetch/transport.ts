@@ -1,5 +1,3 @@
-import { ReadableStream as WorkerReadableStream } from "../../compat/stream-web/runtime.js";
-
 /** Byte transport shared by Web Fetch and node:http; it does not apply HTTP policy. */
 export interface TransportRequest {
   url: string;
@@ -36,7 +34,10 @@ export interface NativeNetwork {
 export class FetchTransport {
   constructor(private readonly network: NativeNetwork) {}
 
-  async fetch(request: TransportRequest): Promise<TransportResponse> {
+  async fetch(
+    request: TransportRequest,
+    ResponseStream = globalThis.ReadableStream,
+  ): Promise<TransportResponse> {
     request.signal.throwIfAborted();
     let connection: NativeConnection | undefined;
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -123,7 +124,7 @@ export class FetchTransport {
       }
       // Produce Workers bytes at the socket boundary. Adapting a host stream
       // here allocated a WebKit reader for every response, including assets.
-      const body = new WorkerReadableStream(
+      const body = new ResponseStream(
         {
           type: "bytes",
           start(controller) {
