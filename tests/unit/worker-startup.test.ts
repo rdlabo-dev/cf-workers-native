@@ -47,6 +47,8 @@ it("reports an actual bootstrap import rejection without Worker.onerror and rele
       client.onmessage?.({ data });
     },
   });
+  const stages: string[] = [];
+  vi.stubGlobal("recordBootstrapStage", (stage: string) => stages.push(stage));
   const result = await build({
     stdin: { contents: workerEntry("user-entry"), resolveDir: process.cwd() },
     bundle: true,
@@ -66,12 +68,12 @@ it("reports an actual bootstrap import rejection without Worker.onerror and rele
             ({ path }) => ({
               contents:
                 path === networkRelayPath
-                  ? "export async function initializeWorkerNetwork() {}"
+                  ? "export async function initializeWorkerNetwork() { await new Promise(resolve => setTimeout(resolve, 0)); recordBootstrapStage('network ready'); }"
                   : path === globalsInstallPath
-                    ? ""
+                    ? "recordBootstrapStage('globals installed');"
                     : path === transportPath
                       ? "export function serve() { throw new Error('Must not serve'); }"
-                      : "throw new RangeError('user module initialization'); export default {};",
+                      : "recordBootstrapStage('worker evaluated'); throw new RangeError('user module initialization'); export default {};",
             }),
           );
         },
@@ -79,9 +81,15 @@ it("reports an actual bootstrap import rejection without Worker.onerror and rele
     ],
   });
   // Execute the generated bootstrap, including its rejected dynamic import.
-  await import(
+  const bootstrap = await import(
     /* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
   );
+  expect(Object.keys(bootstrap)).toEqual([]);
+  expect(stages).toEqual([
+    "network ready",
+    "globals installed",
+    "worker evaluated",
+  ]);
   await ready;
   await pending;
   expect(client.terminate).toHaveBeenCalledOnce();
