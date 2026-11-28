@@ -74,7 +74,7 @@ test(
           (path) => path.startsWith("/_next/static/") && path.endsWith(".js"),
         ),
       );
-      const localAssets = new Set();
+      const assetResponses = [];
       // Route at the preview server so speculative browser requests also use
       // the same bundled-asset manifest as ordinary page requests.
       server = await preview({
@@ -89,10 +89,16 @@ test(
             "/": {
               target: backend.url.origin,
               ca: backend.tls.cert,
-              bypass(req) {
+              bypass(req, res) {
                 const { pathname } = new URL(req.url, backend.url);
                 if (assets.includes(pathname)) {
-                  localAssets.add(pathname);
+                  res.once("finish", () => {
+                    assetResponses.push({
+                      pathname,
+                      status: res.statusCode,
+                      type: res.getHeader("content-type"),
+                    });
+                  });
                   return req.url;
                 }
               },
@@ -239,6 +245,22 @@ test(
         } finally {
           await browser.close();
         }
+      }
+      const localAssets = new Set();
+      for (const { pathname, status, type } of assetResponses) {
+        if (status === 304) continue;
+        assert.equal(status, 200, pathname);
+        if (pathname.endsWith(".js"))
+          assert.match(
+            type ?? "",
+            /^(?:text|application)\/javascript\b/i,
+            pathname,
+          );
+        if (pathname.endsWith(".css"))
+          assert.match(type ?? "", /^text\/css\b/i, pathname);
+        if (pathname.endsWith(".svg"))
+          assert.match(type ?? "", /^image\/svg\+xml\b/i, pathname);
+        localAssets.add(pathname);
       }
       assert.ok([...localAssets].some((path) => path.endsWith(".js")));
       assert.ok([...localAssets].some((path) => path.endsWith(".css")));
