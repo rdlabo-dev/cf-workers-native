@@ -318,6 +318,13 @@ export function installIo(api: any, promises: any) {
       syscall: "writeAll",
     });
   }
+  const writeErrors: Record<string, string> = {
+    EEXIST: "file already exists",
+    EISDIR: "illegal operation on a directory",
+    ELOOP: "symlink depth exceeded",
+    ENOTDIR: "not a directory",
+    EPERM: "operation not permitted",
+  };
   for (const name of ["writeFile", "appendFile"])
     install(
       name,
@@ -358,8 +365,29 @@ export function installIo(api: any, promises: any) {
       },
       (path: any, data: Buffer, append: boolean, exclusive: boolean) => {
         if (typeof path !== "number") {
-          checkWriteDestination(path, exclusive);
-          raw[append ? "appendFileSync" : "writeFileSync"](path, data);
+          try {
+            checkWriteDestination(path, exclusive);
+            raw[append ? "appendFileSync" : "writeFileSync"](path, data);
+          } catch (error: any) {
+            // Workers reports the whole-file operation, including failures
+            // while traversing a parent link before the file is opened.
+            const code =
+              exclusive && error.code === "ELOOP" ? "EEXIST" : error.code;
+            if (code === "ENOENT")
+              throw Object.assign(
+                new Error(`no such file or directory, writeAll '${path}'`),
+                {
+                  code,
+                  syscall: "writeAll",
+                  path,
+                },
+              );
+            if (!Object.hasOwn(writeErrors, code)) throw error;
+            throw Object.assign(new Error(writeErrors[code]), {
+              code,
+              syscall: "writeAll",
+            });
+          }
           return data.length;
         }
         append ||= Boolean(descriptorFlags(path) & 1024);
