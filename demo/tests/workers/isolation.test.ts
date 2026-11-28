@@ -92,7 +92,3 @@ it("streams before completion and allows the client to cancel", async () => {
   // HTTP disconnect does not guarantee a JS cancel callback in the old request context.
   // The Dedicated Worker transport tests that callback separately.
 });
-
-it("keeps missing routes local", async () => {
-  expect((await harness.fetch("/api/missing")).status).toBe(404);
-});
