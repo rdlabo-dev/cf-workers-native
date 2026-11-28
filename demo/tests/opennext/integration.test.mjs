@@ -274,9 +274,11 @@ test(
         "Bundled assets must not reach the remote Worker",
       );
     } finally {
-      if (server)
-        await new Promise((resolve) => server.httpServer.close(resolve));
-      await backend.close();
+      try {
+        await server?.close();
+      } finally {
+        await backend.close();
+      }
     }
   },
 );
