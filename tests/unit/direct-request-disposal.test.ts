@@ -13,7 +13,10 @@ const globals = () => [
 ];
 const baseURL = "https://local.test/api";
 const handler = {
-  fetch: () => Promise.resolve().then(() => new Response(String(env.VALUE))),
+  fetch: () =>
+    Promise.resolve().then(
+      () => new Response(null, { headers: { "X-Binding": String(env.VALUE) } }),
+    ),
 };
 function start(value: string, preferred = false) {
   return createFetchRuntime({
@@ -36,11 +39,15 @@ test("overlapping direct runtimes restore host propagation after the final owner
   const first = start("first"),
     second = start("second", true);
   try {
-    expect(await (await first.fetch(baseURL)).text()).toBe("first");
-    expect(await (await second.fetch(baseURL)).text()).toBe("second");
+    expect((await first.fetch(baseURL)).headers.get("X-Binding")).toBe("first");
+    expect((await second.fetch(baseURL)).headers.get("X-Binding")).toBe(
+      "second",
+    );
     expect(Promise.prototype.then).not.toBe(before[0]);
     await first.dispose();
-    expect(await (await second.fetch(baseURL)).text()).toBe("second");
+    expect((await second.fetch(baseURL)).headers.get("X-Binding")).toBe(
+      "second",
+    );
   } finally {
     await first.dispose();
     await second.dispose();
@@ -48,7 +55,9 @@ test("overlapping direct runtimes restore host propagation after the final owner
   expect(globals()).toEqual(before);
   const restarted = start("again", true);
   try {
-    expect(await (await restarted.fetch(baseURL)).text()).toBe("again");
+    expect((await restarted.fetch(baseURL)).headers.get("X-Binding")).toBe(
+      "again",
+    );
   } finally {
     await restarted.dispose();
   }

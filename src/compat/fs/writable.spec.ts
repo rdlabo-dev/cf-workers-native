@@ -233,6 +233,53 @@ test("a failed copy preserves the destination file and any link to it", async ()
   });
 });
 
+test("copyFile resolves the destination parent before a missing source below a file", async () => {
+  await runWithTemporaryFiles(async () => {
+    fs.writeFileSync("/tmp/parent", "parent");
+    fs.symlinkSync("/tmp/parent", "/tmp/link");
+    fs.writeFileSync("/tmp/dst", "original");
+    for (const source of ["/tmp/parent/child", "/tmp/link/child"]) {
+      const missing = { code: "ENOENT", syscall: "copy", path: source };
+      expect(() => fs.copyFileSync(source, "/tmp/dst")).toThrow(
+        expect.objectContaining(missing),
+      );
+      await expect(
+        fs.promises.copyFile(source, "/tmp/new"),
+      ).rejects.toMatchObject(missing);
+      const error = await new Promise((resolve) =>
+        fs.copyFile(source, "/tmp/dst", resolve),
+      );
+      expect(error).toMatchObject(missing);
+      expect(() =>
+        fs.copyFileSync(source, "/tmp/dst", fs.constants.COPYFILE_EXCL),
+      ).toThrow(expect.objectContaining({ code: "EEXIST" }));
+      expect(() => fs.copyFileSync(source, "/tmp/parent/new")).toThrow(
+        expect.objectContaining({ code: "ENOTDIR", syscall: "copy" }),
+      );
+      expect(() => fs.copyFileSync(source, "/tmp/missing/new")).toThrow(
+        expect.objectContaining({
+          code: "ENOENT",
+          syscall: "copy",
+          path: "new",
+        }),
+      );
+    }
+    expect(() =>
+      fs.copyFileSync("/tmp/parent", "/tmp/parent/missing/new"),
+    ).toThrow(
+      expect.objectContaining({ code: "ENOENT", syscall: "copy", path: "new" }),
+    );
+    expect(() => fs.copyFileSync("/tmp", "/tmp/new")).toThrow(
+      expect.objectContaining({ code: "EISDIR", syscall: "copy" }),
+    );
+    expect(() => fs.copyFileSync("/tmp/parent", "/tmp")).toThrow(
+      expect.objectContaining({ code: "EISDIR", syscall: "copy" }),
+    );
+    expect(fs.readFileSync("/tmp/dst", "utf8")).toBe("original");
+    expect(fs.existsSync("/tmp/new")).toBe(false);
+  });
+});
+
 test("copying a directory preserves a dangling destination link", () => {
   runWithTemporaryFiles(() => {
     fs.mkdirSync("/tmp/source-directory");

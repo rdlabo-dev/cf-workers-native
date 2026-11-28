@@ -353,8 +353,8 @@ it("exposes the direct handler bindings through the imported worker env", async 
   const { runtime, direct } = setup("direct", { STORE: binding });
   direct.fetch.mockImplementation(() => {
     expect(env.STORE).toBe(binding);
-    return new Response("ok");
+    return new Response(null, { status: 204 });
   });
-  expect(await (await runtime.fetch("https://test/api")).text()).toBe("ok");
+  expect((await runtime.fetch("https://test/api")).status).toBe(204);
   expect(env.STORE).toBeUndefined();
 });

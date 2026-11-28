@@ -20,6 +20,7 @@ import {
   embeddedStat,
 } from "./writable.js";
 import { Buffer } from "node:buffer";
+import { posix } from "node:path";
 import {
   validateFunction,
   validateObject,
@@ -393,21 +394,59 @@ installOperation("copyFile", (source: any, destination: any, mode = 0) => {
       code: "ERR_UNSUPPORTED_OPERATION",
     });
   const sourcePath = pathOf(source);
-  const fromTemporary = temporaryPath(sourcePath);
-  writablePath(destination, "copyFile");
-  const entry = api.lstatSync(destination, { throwIfNoEntry: false });
-  if (
-    (entry?.isFile() || entry?.isSymbolicLink()) &&
-    (mode !== 1 || !api.existsSync(destination)) &&
-    api.statSync(sourcePath, { throwIfNoEntry: false })?.isFile()
-  ) {
-    replaceTemporaryFile(pathOf(destination), api.readFileSync(sourcePath));
+  const target = writablePath(destination, "copyFile") as string;
+  function copyStat(path: string, missingPath = path) {
+    try {
+      const stat = api.statSync(path, { throwIfNoEntry: false });
+      if (stat) return stat;
+    } catch (error: any) {
+      if (error.code === "ELOOP")
+        throw Object.assign(new Error("symlink depth exceeded"), {
+          code: "ELOOP",
+          syscall: "copy",
+        });
+      if (error.code !== "ENOTDIR" && error.code !== "ENOENT") throw error;
+    }
+    throw Object.assign(
+      new Error(`no such file or directory, copy '${missingPath}'`),
+      {
+        code: "ENOENT",
+        syscall: "copy",
+        path: missingPath,
+      },
+    );
+  }
+  // Workers resolves the destination parent before looking up the source.
+  const parent = copyStat(posix.dirname(target), posix.basename(target));
+  if (!parent.isDirectory())
+    throw Object.assign(new Error("not a directory"), {
+      code: "ENOTDIR",
+      syscall: "copy",
+    });
+  const entry = api.lstatSync(target, { throwIfNoEntry: false });
+  if (mode === 1 && entry && api.existsSync(target))
+    throw Object.assign(
+      new Error(`file already exists, copyFile '${target}'`),
+      {
+        code: "EEXIST",
+        errno: -17,
+        syscall: "copyFile",
+        path: target,
+      },
+    );
+  const sourceStat = copyStat(sourcePath);
+  if (sourceStat.isDirectory() || entry?.isDirectory())
+    throw Object.assign(new Error("illegal operation on a directory"), {
+      code: "EISDIR",
+      syscall: "copy",
+    });
+  if ((entry?.isFile() || entry?.isSymbolicLink()) && sourceStat.isFile()) {
+    replaceTemporaryFile(target, api.readFileSync(sourcePath));
     return;
   }
-  if (fromTemporary) return temporaryCopyFile(sourcePath, destination, mode);
-  if (mode === 1 && api.existsSync(destination))
-    throw Object.assign(new Error("File already exists"), { code: "EEXIST" });
-  temporary.writeFileSync(destination, embedded.readFileSync(sourcePath));
+  if (temporaryPath(sourcePath))
+    return temporaryCopyFile(sourcePath, target, mode);
+  temporary.writeFileSync(target, embedded.readFileSync(sourcePath));
 });
 const copyTree = (source: string, destination: string, options: any) => {
   const fail = (code: string): never => {
