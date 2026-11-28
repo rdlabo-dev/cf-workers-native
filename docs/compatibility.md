@@ -53,8 +53,8 @@ operation coverage below remain outstanding after release.
 | events                                            | [WebView events profile](../src/compat/events/README.md): EventEmitter, abort/iteration helpers, transformed AsyncResource propagation and process warning delivery. Native async and V8 inspection remain bounded.                                                                             |
 | Other modules                                     | Implementations and shared contracts exist, but whole-module acceptance remains outstanding. Namespace equality alone is insufficient.                                                                                                                                                          |
 
-When using a BYOB reader with `FileHandle.readableWebStream()`, pass a view
-whose `byteOffset` is zero, such as `reader.read(new Uint8Array(4))`. A
+When using a BYOB reader with `FileHandle.readableWebStream()`, omit the `min` option
+and pass a view whose `byteOffset` is zero, such as `reader.read(new Uint8Array(4))`. A
 four-byte view starting at offset three in an eight-byte buffer rejects with
 `ERR_OUT_OF_RANGE` in both the plugin and the pinned Workers runtime. Use the
 returned `value` for the bytes read. [Upstream behavior tracking](https://github.com/rdlabo-dev/cf-workers-native/issues/92)
