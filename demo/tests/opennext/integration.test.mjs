@@ -74,30 +74,33 @@ test(
           (path) => path.startsWith("/_next/static/") && path.endsWith(".js"),
         ),
       );
+      const localAssets = new Set();
+      // Route at the preview server so speculative browser requests also use
+      // the same bundled-asset manifest as ordinary page requests.
       server = await preview({
         configFile: false,
         root: fileURLToPath(new URL("../../opennext/", import.meta.url)),
         build: { outDir: "www" },
-        preview: { host: "127.0.0.1", port: 0 },
+        preview: {
+          host: "127.0.0.1",
+          port: 0,
+          https: backend.tls,
+          proxy: {
+            "/": {
+              target: backend.url.origin,
+              ca: backend.tls.cert,
+              bypass(req) {
+                const { pathname } = new URL(req.url, backend.url);
+                if (assets.includes(pathname)) {
+                  localAssets.add(pathname);
+                  return req.url;
+                }
+              },
+            },
+          },
+        },
       });
-      const localAssets = new Set();
-      // Browser baseline models native asset delivery; the native test exercises
-      // the real document host and asserts no asset requests reach this backend.
-      const useBundledAssets = (context) =>
-        context.route(backend.url.origin + "/**", async (route) => {
-          const url = new URL(route.request().url());
-          if (!assets.includes(url.pathname)) return route.continue();
-          const response = await fetch(
-            new URL(url.pathname + url.search, server.resolvedUrls.local[0]),
-          );
-          assert.equal(response.status, 200);
-          localAssets.add(url.pathname);
-          await route.fulfill({
-            status: response.status,
-            headers: Object.fromEntries(response.headers),
-            body: Buffer.from(await response.arrayBuffer()),
-          });
-        });
+      const appURL = server.resolvedUrls.local[0];
       const response = await backend.fetch("/details");
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("x-sample-middleware"), "ran");
@@ -105,7 +108,6 @@ test(
         const browser = await engine.launch();
         try {
           const context = await browser.newContext({ ignoreHTTPSErrors: true });
-          await useBundledAssets(context);
           const page = await context.newPage();
           const about = await backend.fetch("/about");
           assert.equal(about.status, 200);
@@ -134,7 +136,7 @@ test(
           const apiResponse = page.waitForResponse(
             (response) => new URL(response.url()).pathname === "/api/message",
           );
-          await page.goto(backend.url.href);
+          await page.goto(appURL);
           assert.deepEqual(await (await apiResponse).json(), {
             message: "Next.js API ready",
           });
@@ -179,7 +181,7 @@ test(
             .prepare("SELECT writes FROM notes WHERE owner = 'alice'")
             .first();
           const rejected = await page.request.post(
-            new URL("/api/notes", backend.url).href,
+            new URL("/api/notes", appURL).href,
             {
               form: { value: "Forged note", csrf: "invalid" },
             },
@@ -216,9 +218,8 @@ test(
             storageState: state,
             ignoreHTTPSErrors: true,
           });
-          await useBundledAssets(restarted);
           const restored = await restarted.newPage();
-          await restored.goto(new URL("/account", backend.url).href);
+          await restored.goto(new URL("/account", appURL).href);
           await expect(restored.locator("#owner")).toHaveText("alice");
           await restored
             .getByRole("button", { name: "Sign out", exact: true })
