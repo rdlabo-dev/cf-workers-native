@@ -196,6 +196,7 @@ export async function startBackend({ native = false, driver, appRoot } = {}) {
       config,
       db: DB,
       ca: join(certDir, "ca.pem"),
+      key: join(certDir, "key.pem"),
       fetch: (path, init) => dispatch(new URL(path, url).href, init),
       close: async () => {
         await new Promise((resolve) => https.close(resolve));
